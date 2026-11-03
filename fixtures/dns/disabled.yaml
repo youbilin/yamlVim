@@ -1,0 +1,14 @@
+enabled: false
+settings:
+  enable: true
+  nameserver:
+    - https://doh.pub/dns-query
+rules:
+  - id: ignored
+    match:
+      type: exact
+      value: example.com
+    action:
+      type: fixed-ip
+      ips:
+        - 1.2.3.4

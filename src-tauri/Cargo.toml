@@ -1,0 +1,28 @@
+[package]
+name = "yamlvim"
+version = "0.1.0"
+description = "YamlVim desktop shell"
+authors = ["youbilin"]
+edition = "2021"
+rust-version = "1.77.2"
+license = "MIT"
+
+[workspace]
+
+[lib]
+name = "yamlvim_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+yamlvim-core = { path = "../crates/yamlvim-core" }
+yamlvim-mihomo = { path = "../crates/yamlvim-mihomo" }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

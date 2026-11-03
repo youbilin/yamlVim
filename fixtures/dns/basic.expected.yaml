@@ -1,0 +1,33 @@
+dns:
+  enable: true
+  listen: 127.0.0.1:1053
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - '*.lan'
+    - '+.lan'
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  nameserver:
+    - https://doh.pub/dns-query
+    - tls://dns.alidns.com
+  proxy-server-nameserver:
+    - https://doh.pub/dns-query
+  fallback:
+    - tls://8.8.4.4
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    ipcidr:
+      - 240.0.0.0/4
+  use-hosts: true
+  use-system-hosts: true
+  nameserver-policy:
+    '+.openai.com': https://dns.google/dns-query
+    'geosite:category-ads-all': rcode://refused
+    'rule-set:private': system
+hosts:
+  existing.example: 10.0.0.1
+  example.com: 93.184.216.34

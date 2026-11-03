@@ -1,0 +1,74 @@
+import { useEffect } from 'react';
+import { Link } from 'react-router-dom';
+
+import { asArray, asRecord, asText } from '../lib/workspace';
+import { useWorkspaceData } from '../store/workspace';
+
+export function ExitsPage() {
+  const view = useWorkspaceData((state) => state.view);
+  const error = useWorkspaceData((state) => state.error);
+  const load = useWorkspaceData((state) => state.load);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const exits = view?.exits ?? [];
+
+  return (
+    <section className="page">
+      <header className="page-head">
+        <div>
+          <p className="eyebrow">EXITS</p>
+          <h1>出口</h1>
+          <p className="lead">
+            导入 YAML 的 proxy-groups 会成为出口。导出时只写入当前 workspace 的出口和成员。
+          </p>
+        </div>
+        <span className="chip chip-muted">{view ? `${view.exitCount} exits` : 'no workspace'}</span>
+      </header>
+
+      <div className="card">
+        <div className="card-head">
+          <div>
+            <h2 className="card-title">策略组</h2>
+            <p className="card-sub">select / url-test / fallback / load-balance 会原样保留。</p>
+          </div>
+          <Link className="btn btn-ghost" to="/config">
+            导入配置
+          </Link>
+        </div>
+
+        {error ? <p className="notice notice-info">{error}</p> : null}
+
+        {exits.length ? (
+          <div className="data-list">
+            {exits.map((exit, index) => {
+              const entry = asRecord(exit);
+              const name = asText(entry.name) || `exit-${index + 1}`;
+              const type = asText(entry.type) || 'unknown';
+              const members = asArray(entry.proxies);
+              return (
+                <div className="data-row" key={`${name}-${index}`}>
+                  <span className="data-index">{String(index + 1).padStart(2, '0')}</span>
+                  <div className="data-main">
+                    <strong>{name}</strong>
+                    <span>
+                      {type} · {members.length} members
+                    </span>
+                  </div>
+                  <span className="chip chip-muted">{type}</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="empty">
+            <strong>还没有出口</strong>
+            <p>导入 YAML 后，proxy-groups 会自动显示在这里。</p>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}

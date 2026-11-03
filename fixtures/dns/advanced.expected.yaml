@@ -1,0 +1,43 @@
+dns:
+  enable: true
+  prefer-h3: true
+  ipv6: true
+  ipv6-timeout: 300
+  enhanced-mode: redir-host
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-range6: 2001:db8::/32
+  fake-ip-filter:
+    - '+.local'
+  fake-ip-filter-mode: blacklist
+  fake-ip-ttl: 60
+  default-nameserver:
+    - 1.1.1.1
+    - 8.8.8.8:53
+  nameserver:
+    - https://cloudflare-dns.com/dns-query
+  proxy-server-nameserver:
+    - https://dns.google/dns-query
+  proxy-server-nameserver-policy:
+    '+.example.com': 1.1.1.1
+  direct-nameserver:
+    - 223.5.5.5
+  direct-nameserver-follow-policy: true
+  fallback:
+    - tls://1.0.0.1
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    ipcidr:
+      - 240.0.0.0/4
+    domain:
+      - '+.google.com'
+    geosite:
+      - category-ads-all
+  fallback-lazy-query: true
+  cache-algorithm: arc
+  cache-max-size: 8192
+  use-hosts: true
+  use-system-hosts: false
+  respect-rules: true
+  custom-vendor-key:
+    nested: true

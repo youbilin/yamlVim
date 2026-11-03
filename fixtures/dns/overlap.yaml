@@ -1,0 +1,22 @@
+enabled: true
+settings:
+  enable: true
+  nameserver:
+    - https://doh.pub/dns-query
+rules:
+  - id: broad
+    match:
+      type: suffix
+      value: example.com
+    action:
+      type: nameserver
+      servers:
+        - 1.1.1.1
+  - id: narrow
+    match:
+      type: exact
+      value: www.example.com
+    action:
+      type: nameserver
+      servers:
+        - 8.8.8.8

@@ -1,0 +1,16 @@
+enabled: true
+rule-sets:
+  - private
+settings:
+  enable: true
+  nameserver:
+    - https://doh.pub/dns-query
+rules:
+  - id: private-policy
+    match:
+      type: rule-set
+      value: private
+    action:
+      type: nameserver
+      servers:
+        - system

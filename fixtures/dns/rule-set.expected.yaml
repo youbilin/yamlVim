@@ -1,0 +1,6 @@
+dns:
+  enable: true
+  nameserver:
+    - https://doh.pub/dns-query
+  nameserver-policy:
+    'rule-set:private': system

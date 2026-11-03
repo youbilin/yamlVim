@@ -1,0 +1,17 @@
+mixed-port: 17899
+mode: rule
+log-level: info
+allow-lan: false
+ipv6: false
+proxies: []
+proxy-groups: []
+rules:
+  - MATCH,DIRECT
+dns:
+  enable: false
+  nameserver:
+    - 1.1.1.1
+hosts:
+  base.example: 10.0.0.1
+profile:
+  store-selected: true

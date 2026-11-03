@@ -1,0 +1,67 @@
+enabled: true
+rule-sets:
+  - private
+settings:
+  enable: true
+  listen: 127.0.0.1:1053
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - '*.lan'
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  nameserver:
+    - https://doh.pub/dns-query
+    - tls://dns.alidns.com
+  proxy-server-nameserver:
+    - https://doh.pub/dns-query
+  fallback:
+    - tls://8.8.4.4
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    ipcidr:
+      - 240.0.0.0/4
+  use-hosts: true
+  use-system-hosts: true
+rules:
+  - id: ai-upstream
+    match:
+      type: suffix
+      value: openai.com
+    action:
+      type: nameserver
+      servers:
+        - https://dns.google/dns-query
+  - id: pin-example
+    match:
+      type: exact
+      value: example.com
+    action:
+      type: fixed-ip
+      ips:
+        - 93.184.216.34
+  - id: bypass-lan
+    match:
+      type: suffix
+      value: lan
+    action:
+      type: bypass-fake-ip
+  - id: block-ads
+    match:
+      type: geosite
+      value: category-ads-all
+    action:
+      type: block
+  - id: private-policy
+    match:
+      type: rule-set
+      value: private
+    action:
+      type: nameserver
+      servers:
+        - system
+hosts:
+  existing.example: 10.0.0.1

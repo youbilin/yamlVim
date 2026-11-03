@@ -1,0 +1,26 @@
+enabled: true
+settings:
+  enable: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 223.5.5.5
+  nameserver:
+    - https://doh.pub/dns-query
+rules:
+  - id: pin
+    match:
+      type: exact
+      value: example.com
+    action:
+      type: fixed-ip
+      ips:
+        - 93.184.216.34
+  - id: ai
+    match:
+      type: suffix
+      value: openai.com
+    action:
+      type: nameserver
+      servers:
+        - https://dns.google/dns-query
