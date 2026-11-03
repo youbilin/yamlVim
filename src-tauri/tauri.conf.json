@@ -27,13 +27,13 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
     "targets": ["nsis"],
     "publisher": "youbilin",
     "copyright": "Copyright © 2026 youbilin",
     "category": "DeveloperTool",
     "shortDescription": "Local-first mihomo routing and DNS workbench",
-    "longDescription": "YamlVim owns a mihomo configuration, manages the core process, edits routing and DNS visually, and applies changes safely without any client dependency.",
+    "longDescription": "YamlVim is a workspace-first mihomo routing and DNS workbench. It imports YAML or node links, edits routing and DNS visually, validates with mihomo -t, and exports new YAML without modifying a running core.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

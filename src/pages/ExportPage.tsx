@@ -6,11 +6,62 @@ import {
   exportConfig,
   getConfigStatus,
   isTauriRuntime,
+  latestExport,
   saveWorkspaceYaml,
   validateConfig,
 } from '../api';
 import { useWorkspaceData } from '../store/workspace';
 import type { ConfigStatus, ConfigValidation } from '../types';
+
+interface DiffLine {
+  kind: 'same' | 'add' | 'remove';
+  text: string;
+}
+
+function diffLines(before: string[], after: string[]): DiffLine[] {
+  if (before.length * after.length > 1_000_000) {
+    return [
+      ...before.map((text): DiffLine => ({ kind: 'remove', text })),
+      ...after.map((text): DiffLine => ({ kind: 'add', text })),
+    ];
+  }
+  const table = Array.from({ length: before.length + 1 }, () =>
+    new Uint32Array(after.length + 1),
+  );
+  for (let i = 1; i <= before.length; i += 1) {
+    for (let j = 1; j <= after.length; j += 1) {
+      table[i][j] =
+        before[i - 1] === after[j - 1]
+          ? table[i - 1][j - 1] + 1
+          : Math.max(table[i - 1][j], table[i][j - 1]);
+    }
+  }
+  const result: DiffLine[] = [];
+  let i = before.length;
+  let j = after.length;
+  while (i > 0 && j > 0) {
+    if (before[i - 1] === after[j - 1]) {
+      result.push({ kind: 'same', text: before[i - 1] });
+      i -= 1;
+      j -= 1;
+    } else if (table[i - 1][j] >= table[i][j - 1]) {
+      result.push({ kind: 'remove', text: before[i - 1] });
+      i -= 1;
+    } else {
+      result.push({ kind: 'add', text: after[j - 1] });
+      j -= 1;
+    }
+  }
+  while (i > 0) {
+    result.push({ kind: 'remove', text: before[i - 1] });
+    i -= 1;
+  }
+  while (j > 0) {
+    result.push({ kind: 'add', text: after[j - 1] });
+    j -= 1;
+  }
+  return result.reverse();
+}
 
 export function ExportPage() {
   const [status, setStatus] = useState<ConfigStatus | null>(null);
@@ -20,6 +71,7 @@ export function ExportPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [diff, setDiff] = useState<DiffLine[] | null>(null);
   const version = useWorkspaceData((state) => state.version);
   const browser = !isTauriRuntime();
   const dirty = draftYaml !== loadedYaml;
@@ -75,6 +127,22 @@ export function ExportPage() {
     }
   };
 
+  const handleDiff = async () => {
+    setError('');
+    setMessage('');
+    try {
+      const previous = await latestExport();
+      if (!previous) {
+        setMessage('还没有历史导出文件');
+        setDiff(null);
+        return;
+      }
+      setDiff(diffLines(previous.split('\n'), draftYaml.split('\n')));
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
+  };
+
   const handleExport = async () => {
     setBusy(true);
     setError('');
@@ -122,7 +190,7 @@ export function ExportPage() {
           <div className="card-title-row">
             <h2 className="card-title">完整 YAML</h2>
             <span className={`chip ${dirty ? 'chip-attach' : 'chip-muted'}`}>
-              {dirty ? '未保存' : `${status.historyCount} history`}
+              {dirty ? '未保存' : 'workspace'}
             </span>
             <span className="chip chip-muted">
               {status.nodeCount} / {status.exitCount} / {status.ruleCount}
@@ -146,6 +214,14 @@ export function ExportPage() {
             >
               <Save size={15} />
               保存到 workspace
+            </button>
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={() => void handleDiff()}
+              disabled={busy || browser}
+            >
+              对比上次导出
             </button>
             <button
               className="btn btn-ghost"
@@ -188,6 +264,24 @@ export function ExportPage() {
           aria-label="完整 YAML"
         />
 
+        {diff ? (
+          <div className="diff-panel">
+            <div className="diff-head">
+              <strong>与上次导出对比</strong>
+              <button className="btn btn-ghost" type="button" onClick={() => setDiff(null)}>
+                关闭
+              </button>
+            </div>
+            <div className="diff-list">
+              {diff.map((line, index) => (
+                <div className={`diff-line ${line.kind}`} key={`${line.kind}-${index}`}>
+                  <span>{line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : ' '}</span>
+                  <code>{line.text || ' '}</code>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     </section>
   );

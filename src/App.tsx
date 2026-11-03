@@ -96,7 +96,7 @@ function Shell() {
   };
 
   return (
-    <div className="app">
+    <div className={collapsed ? 'app app-collapsed' : 'app'}>
       <aside className={collapsed ? 'sidebar collapsed' : 'sidebar'}>
         <div className="sidebar-head">
           <a

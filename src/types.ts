@@ -106,7 +106,6 @@ export interface ConfigStatus {
   nodeCount: number;
   exitCount: number;
   ruleCount: number;
-  historyCount: number;
   configYaml?: string;
 }
 

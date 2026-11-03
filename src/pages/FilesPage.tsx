@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Eye, RefreshCw } from 'lucide-react';
+import { Eye, RefreshCw, Trash2 } from 'lucide-react';
 
 import {
+  deleteExport,
   errorMessage,
   isTauriRuntime,
   listExports,
   loadExportAsWorkspace,
   readExport,
 } from '../api';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useWorkspaceData } from '../store/workspace';
 import type { ExportFile } from '../types';
 
@@ -23,6 +25,7 @@ export function FilesPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [deleting, setDeleting] = useState<string | null>(null);
   const browser = !isTauriRuntime();
 
   const refresh = async () => {
@@ -47,6 +50,18 @@ export function FilesPage() {
       setError(errorMessage(reason));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    try {
+      await deleteExport(deleting);
+      setDeleting(null);
+      setMessage('导出文件已删除');
+      await refresh();
+    } catch (reason) {
+      setError(errorMessage(reason));
     }
   };
 
@@ -117,6 +132,15 @@ export function FilesPage() {
                   >
                     重新编辑
                   </button>
+                  <button
+                    className="btn btn-ghost"
+                    type="button"
+                    onClick={() => setDeleting(file.path)}
+                    disabled={busy || browser}
+                    aria-label="删除导出文件"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               </div>
             ))}
@@ -126,6 +150,16 @@ export function FilesPage() {
             <strong>暂无导出文件</strong>
           </div>
         )}
+
+        {deleting ? (
+          <ConfirmDialog
+            title="删除导出文件"
+            message="确定删除这个导出 YAML？此操作不可撤销。"
+            confirmLabel="删除"
+            onConfirm={confirmDelete}
+            onClose={() => setDeleting(null)}
+          />
+        ) : null}
 
         {preview ? (
           <div className="preview-overlay">

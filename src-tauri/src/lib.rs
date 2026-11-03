@@ -1,7 +1,11 @@
 use std::collections::BTreeSet;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tauri::menu::{Menu, MenuItem};
+use tauri::Manager;
+use tauri::tray::TrayIconBuilder;
 
 use base64::alphabet;
 use base64::engine::{general_purpose::GeneralPurpose, DecodePaddingMode, GeneralPurposeConfig};
@@ -1387,6 +1391,40 @@ fn list_exports() -> Result<Vec<ExportEntry>, String> {
 }
 
 #[tauri::command]
+fn latest_export() -> Result<Option<String>, String> {
+    let dir = exports_dir()?;
+    if !dir.exists() {
+        return Ok(None);
+    }
+    let mut files: Vec<PathBuf> = fs::read_dir(&dir)
+        .map_err(|error| format!("failed to read {}: {error}", dir.display()))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|extension| extension.to_str()) == Some("yaml"))
+        .collect();
+    files.sort_by_key(|path| path.metadata().and_then(|meta| meta.modified()).ok());
+    let Some(last) = files.last() else {
+        return Ok(None);
+    };
+    read_text(last).map(Some)
+}
+
+#[tauri::command]
+fn delete_export(path: String) -> Result<(), String> {
+    let root = exports_dir()?
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let target = PathBuf::from(&path)
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    if !target.starts_with(&root) || target == root {
+        return Err("只能删除导出目录内的文件".into());
+    }
+    fs::remove_file(&target)
+        .map_err(|error| format!("failed to delete {}: {error}", target.display()))
+}
+
+#[tauri::command]
 fn read_export(path: String) -> Result<String, String> {
     read_text(Path::new(&path))
 }
@@ -1443,6 +1481,43 @@ fn export_config() -> Result<String, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        .setup(|app| {
+            let show = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+            let icon = app
+                .default_window_icon()
+                .cloned()
+                .expect("YamlVim window icon is missing");
+            let _tray = TrayIconBuilder::new()
+                .icon(icon)
+                .tooltip("YamlVim")
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .build(app)?;
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,
@@ -1467,6 +1542,8 @@ pub fn run() {
             controller_flush_dns,
             save_controller,
             list_exports,
+            latest_export,
+            delete_export,
             read_export,
             load_export_as_workspace,
             switch_proxy,

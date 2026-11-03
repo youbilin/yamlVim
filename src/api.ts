@@ -112,7 +112,6 @@ export async function getConfigStatus(): Promise<ConfigStatus> {
       nodeCount: 0,
       exitCount: 0,
       ruleCount: 0,
-      historyCount: 0,
     };
   }
   return invoke<ConfigStatus>('config_status');
@@ -244,6 +243,16 @@ export async function switchProxy(group: string, name: string): Promise<string> 
 export async function listExports(): Promise<ExportFile[]> {
   if (!isTauriRuntime()) return [];
   return invoke<ExportFile[]>('list_exports');
+}
+
+export async function latestExport(): Promise<string | null> {
+  if (!isTauriRuntime()) return null;
+  return invoke<string | null>('latest_export');
+}
+
+export async function deleteExport(path: string): Promise<void> {
+  if (!isTauriRuntime()) throw new Error('Browser mode cannot delete files.');
+  await invoke('delete_export', { path });
 }
 
 export async function readExport(path: string): Promise<string> {
