@@ -279,6 +279,14 @@ export async function deleteExit(name: string): Promise<ConfigStatus> {
   return invoke<ConfigStatus>('delete_exit', { name });
 }
 
+export async function createChainNode(
+  baseName: string,
+  dialer: string,
+  name: string | null,
+): Promise<ConfigStatus> {
+  return invoke<ConfigStatus>('create_chain_node', { baseName, dialer, name });
+}
+
 export async function saveRules(rules: string[]): Promise<ConfigStatus> {
   return invoke<ConfigStatus>('save_rules', { rules });
 }

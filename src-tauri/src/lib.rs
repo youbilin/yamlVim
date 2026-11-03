@@ -1214,6 +1214,59 @@ fn save_rules(rules: Vec<String>) -> Result<ConfigStatus, String> {
 }
 
 #[tauri::command]
+fn create_chain_node(
+    base_name: String,
+    dialer: String,
+    name: Option<String>,
+) -> Result<ConfigStatus, String> {
+    let mut workspace = load_workspace()?;
+    let base = workspace
+        .proxies
+        .iter()
+        .find(|value| proxy_name(value).as_deref() == Some(base_name.as_str()))
+        .ok_or_else(|| format!("基础节点不存在：{base_name}"))?;
+    let mut mapping = base
+        .as_mapping()
+        .cloned()
+        .ok_or_else(|| "基础节点不是 mapping".to_string())?;
+    let final_name = name
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| format!("{base_name} → {dialer}"));
+    if workspace
+        .proxies
+        .iter()
+        .any(|value| proxy_name(value).as_deref() == Some(final_name.as_str()))
+    {
+        return Err(format!("节点 name 重复：{final_name}"));
+    }
+    let mut known: BTreeSet<String> = workspace.proxies.iter().filter_map(proxy_name).collect();
+    for group in &workspace.proxy_groups {
+        if let Some(group_name) = proxy_name(group) {
+            known.insert(group_name);
+        }
+    }
+    for builtin in ["DIRECT", "REJECT", "REJECT-DROP", "PASS"] {
+        known.insert(builtin.to_string());
+    }
+    if !known.contains(&dialer) {
+        return Err(format!("前置节点/出口不存在：{dialer}"));
+    }
+    mapping.insert(
+        serde_yaml::Value::String("name".into()),
+        serde_yaml::Value::String(final_name),
+    );
+    mapping.insert(
+        serde_yaml::Value::String("dialer-proxy".into()),
+        serde_yaml::Value::String(dialer),
+    );
+    workspace.proxies.push(serde_yaml::Value::Mapping(mapping));
+    workspace.normalize();
+    save_workspace_files(&workspace, Some("chain-create"))?;
+    config_status()
+}
+
+#[tauri::command]
 async fn controller_get(path: String) -> Result<String, String> {
     let settings = load_settings()?;
     let endpoint = settings.controller_endpoint.trim().to_string();
@@ -1391,7 +1444,8 @@ pub fn run() {
             exit_yaml,
             save_exit_yaml,
             delete_exit,
-            save_rules
+            save_rules,
+            create_chain_node
         ])
         .run(tauri::generate_context!())
         .expect("error while running YamlVim");

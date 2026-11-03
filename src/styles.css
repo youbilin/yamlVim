@@ -1516,3 +1516,22 @@ code {
   }
 }
 
+
+/* === Chain form === */
+.chain-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.chain-form .btn {
+  height: 36px;
+}
+
+@media (max-width: 900px) {
+  .chain-form {
+    grid-template-columns: 1fr;
+  }
+}
+

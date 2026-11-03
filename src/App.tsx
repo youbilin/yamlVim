@@ -27,11 +27,11 @@ import { ImportDialog } from './components/ImportDialog';
 import { CorePage } from './pages/CorePage';
 import { DnsPage } from './pages/DnsPage';
 import { ExitsPage } from './pages/ExitsPage';
+import { ChainsPage } from './pages/ChainsPage';
 import { ExportPage } from './pages/ExportPage';
 import { FilesPage } from './pages/FilesPage';
 import { LivePage } from './pages/LivePage';
 import { NodesPage } from './pages/NodesPage';
-import { PlaceholderPage } from './pages/PlaceholderPage';
 import { RulesPage } from './pages/RulesPage';
 import { useImportDialog } from './store/dialogs';
 import type { CoreProbe } from './types';
@@ -165,16 +165,7 @@ function Shell() {
             <Route path="/live" element={<LivePage />} />
             <Route path="/nodes" element={<NodesPage />} />
             <Route path="/exits" element={<ExitsPage />} />
-            <Route
-              path="/chains"
-              element={
-                <PlaceholderPage
-                  title="链路"
-                  description="用 dialer-proxy 生成独立链式节点。"
-                  milestone="M2"
-                />
-              }
-            />
+            <Route path="/chains" element={<ChainsPage />} />
             <Route path="/rules" element={<RulesPage />} />
             <Route path="/export" element={<ExportPage />} />
             <Route path="/files" element={<FilesPage />} />
