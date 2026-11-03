@@ -51,56 +51,51 @@ button {
 }
 
 .sidebar {
-  width: 236px;
-  flex: 0 0 236px;
+  width: 228px;
+  flex: 0 0 228px;
   display: flex;
   flex-direction: column;
-  padding: 18px 14px 14px;
+  padding: 10px 10px 14px;
   background: var(--panel);
   border-right: 1px solid var(--line);
+  transition: width 180ms ease, flex-basis 180ms ease, padding 180ms ease;
+  overflow: hidden;
 }
 
-.brand {
+.sidebar.collapsed {
+  width: 64px;
+  flex-basis: 64px;
+  padding-inline: 8px;
+}
+
+.sidebar-head {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 2px 8px 22px;
+  justify-content: flex-end;
+  padding: 2px 2px 10px;
 }
 
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  background: var(--black);
-  color: #fff;
-  font-weight: 800;
-  letter-spacing: -0.04em;
+.sidebar.collapsed .sidebar-head {
+  justify-content: center;
 }
 
-.brand-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
-}
-
-.brand-text strong {
-  font-size: 15px;
-  letter-spacing: -0.01em;
-}
-
-.brand-text span {
-  font-size: 10px;
+.sidebar-toggle {
+  width: 30px;
+  height: 30px;
+  border-color: transparent;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+}
+
+.sidebar-toggle:hover {
+  color: var(--ink);
+  background: var(--soft);
 }
 
 .nav {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  flex: 1;
+  overflow-y: auto;
 }
 
 .nav-label {
@@ -109,6 +104,11 @@ button {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.sidebar.collapsed .nav-label {
+  display: none;
 }
 
 .nav-item {
@@ -120,7 +120,21 @@ button {
   color: var(--ink-2);
   text-decoration: none;
   font-size: 13px;
+  white-space: nowrap;
   transition: background 120ms ease, color 120ms ease;
+}
+
+.nav-item svg {
+  flex: 0 0 auto;
+  transition: transform 160ms ease;
+}
+
+.nav-item:hover svg {
+  transform: translateX(2px) scale(1.08);
+}
+
+.nav-item:active svg {
+  transform: scale(0.96);
 }
 
 .nav-item:hover {
@@ -132,18 +146,13 @@ button {
   color: #fff;
 }
 
-.sidebar-foot {
-  margin-top: auto;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 10px;
 }
 
-.version {
-  display: block;
-  padding: 10px 10px 0;
-  color: var(--muted);
-  font-size: 10px;
-  letter-spacing: 0.06em;
+.sidebar.collapsed .nav-item span {
+  display: none;
 }
 
 .main {
@@ -718,28 +727,6 @@ code {
 }
 
 @media (max-width: 900px) {
-  .sidebar {
-    width: 72px;
-    flex-basis: 72px;
-    padding-inline: 10px;
-  }
-
-  .brand-text,
-  .nav-item span,
-  .nav-label,
-  .version {
-    display: none;
-  }
-
-  .brand {
-    justify-content: center;
-    padding-inline: 0;
-  }
-
-  .nav-item {
-    justify-content: center;
-  }
-
   .content {
     padding: 20px 18px 36px;
   }
@@ -934,5 +921,89 @@ code {
 .card-head .inline-actions {
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(20, 20, 20, 0.32);
+  backdrop-filter: blur(3px);
+}
+
+.dialog {
+  width: min(620px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 30px 90px rgba(20, 20, 20, 0.22);
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dialog-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+}
+
+.dialog-body .lead {
+  margin: 0;
+}
+
+.dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.node-editor {
+  min-height: 220px;
+}
+
+.export-editor {
+  min-height: 520px;
+  max-height: 640px;
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+
+.topbar-meta .btn {
+  height: 32px;
+}
+
+.empty .inline-actions {
+  margin-top: 14px;
+}
+
+
+.card-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 

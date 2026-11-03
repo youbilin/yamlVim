@@ -1,13 +1,14 @@
 import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
 
 import { asText } from '../lib/workspace';
+import { useImportDialog } from '../store/dialogs';
 import { useWorkspaceData } from '../store/workspace';
 
 export function RulesPage() {
   const view = useWorkspaceData((state) => state.view);
   const error = useWorkspaceData((state) => state.error);
   const load = useWorkspaceData((state) => state.load);
+  const showImport = useImportDialog((state) => state.show);
 
   useEffect(() => {
     void load();
@@ -18,26 +19,15 @@ export function RulesPage() {
 
   return (
     <section className="page">
-      <header className="page-head">
-        <div>
-          <p className="eyebrow">RULES</p>
-          <h1>规则</h1>
-          <p className="lead">
-            规则顺序和 rule-providers 属于当前 workspace。导出会重新生成规则列表，不会回填原始配置。
-          </p>
-        </div>
-        <span className="chip chip-muted">{view ? `${view.ruleCount} rules` : 'no workspace'}</span>
-      </header>
-
       <div className="card">
         <div className="card-head">
-          <div>
-            <h2 className="card-title">规则列表</h2>
-            <p className="card-sub">按顺序匹配；rule-providers 名称来自导入配置。</p>
+          <div className="card-title-row">
+            <h2 className="card-title">规则</h2>
+            <span className="chip chip-muted">{view ? `${view.ruleCount}` : '—'}</span>
           </div>
-          <Link className="btn btn-ghost" to="/config">
-            导入配置
-          </Link>
+          <button className="btn btn-ghost" type="button" onClick={showImport}>
+            导入 YAML
+          </button>
         </div>
 
         {error ? <p className="notice notice-info">{error}</p> : null}
@@ -56,7 +46,9 @@ export function RulesPage() {
         ) : (
           <div className="empty">
             <strong>还没有规则</strong>
-            <p>导入 YAML 后，rules 会自动显示在这里。</p>
+            <button className="btn btn-primary" type="button" onClick={showImport}>
+              导入 YAML
+            </button>
           </div>
         )}
 

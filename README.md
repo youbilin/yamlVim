@@ -8,9 +8,9 @@ Standalone mihomo routing and DNS workbench. See [PLAN.md](PLAN.md) for the desi
 - **M2 workspace ownership**: importing a mihomo YAML populates nodes, exits and rules;
   export regenerates a brand-new YAML from the current workspace only. There is no
   hidden base config. Old versions live only in `data/history`.
-- **Editing**: a raw workspace YAML editor on the Config page can add, remove or edit
-  nodes, exits and rules. Saving only writes the workspace and a new `config.yaml`;
-  it never modifies a running mihomo.
+- **Editing**: the Export page shows the full YAML in an editable editor. Saving
+  only writes the workspace and a new `config.yaml`; exporting writes a new file. It
+  never modifies a running mihomo.
 - **Safe mode only**: no core start/stop, no profile reload, no writes to another
   client or controller. Read-only controller attach and live data are the next step.
 - **DNS**: visual DNS override compiler, full-config preview, `mihomo -t` validation
@@ -41,14 +41,14 @@ contain node credentials and controller secrets.
 
 ## One-click import
 
-Use **Config → import** once. The YAML is parsed into the workspace and all the
-workspace pages update:
+Use the topbar **导入** action once. The YAML is parsed into the workspace and all
+the workspace pages update:
 
 - **Nodes** shows `proxies`.
 - **Exits** shows `proxy-groups`.
 - **Rules** shows `rules` and `rule-providers`.
 - **DNS** can apply a new DNS override to the workspace.
-- **Config** shows and edits the generated full YAML.
+- **Export** shows and edits the generated full YAML.
 
 Exporting writes a new file under `data/exports`. It does not merge the original
 YAML, so deleted nodes stay deleted and the only remaining copy of the old version
@@ -70,7 +70,7 @@ is in `data/history`.
 ## Repository layout
 
 ```text
-src/                    React UI (core, DNS, config, nodes, exits, rules)
+src/                    React UI (core, live, nodes, exits, chains, rules, DNS, export)
 src-tauri/              Tauri 2 shell and IPC commands
 crates/yamlvim-core/    workspace model, DNS compiler, config generation
 crates/yamlvim-mihomo/  probe, config validation, process runner (reserved)

@@ -194,6 +194,14 @@ fn history_count() -> Result<usize, String> {
     Ok(count)
 }
 
+fn proxy_name(value: &serde_yaml::Value) -> Option<String> {
+    value
+        .as_mapping()?
+        .get("name")?
+        .as_str()
+        .map(str::to_string)
+}
+
 fn sanitize_component(value: &str) -> String {
     let mut result = String::new();
     for character in value.chars() {
@@ -649,6 +657,62 @@ fn save_workspace_yaml(yaml: String) -> Result<ConfigStatus, String> {
 }
 
 #[tauri::command]
+fn add_node_yaml(yaml: String) -> Result<ConfigStatus, String> {
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(&yaml).map_err(|error| error.to_string())?;
+    let mut additions = Vec::new();
+    match &value {
+        serde_yaml::Value::Mapping(mapping) => {
+            if let Some(proxies) = mapping
+                .get("proxies")
+                .and_then(serde_yaml::Value::as_sequence)
+            {
+                additions.extend(proxies.iter().cloned());
+            } else if mapping.contains_key("name") {
+                additions.push(value.clone());
+            } else {
+                return Err("节点 YAML 需要包含 name/type，或一个 proxies 列表".into());
+            }
+        }
+        serde_yaml::Value::Sequence(sequence) => additions.extend(sequence.iter().cloned()),
+        _ => return Err("节点 YAML 必须是一个 mapping、mapping 列表或 proxies 列表".into()),
+    }
+    if additions.is_empty() {
+        return Err("没有可添加的节点".into());
+    }
+
+    let previous = load_workspace_opt()?;
+    let mut workspace = load_workspace()?;
+    let mut names: BTreeSet<String> = workspace.proxies.iter().filter_map(proxy_name).collect();
+    for addition in &additions {
+        if addition.as_mapping().is_none() {
+            return Err("每个节点必须是一个 YAML mapping".into());
+        }
+        let name = proxy_name(addition).ok_or_else(|| "每个节点都需要 name".to_string())?;
+        if addition
+            .as_mapping()
+            .and_then(|mapping| mapping.get("type"))
+            .and_then(serde_yaml::Value::as_str)
+            .is_none()
+        {
+            return Err(format!("节点 {name} 缺少 type"));
+        }
+        if !names.insert(name.clone()) {
+            return Err(format!("节点 name 重复：{name}"));
+        }
+    }
+
+    if let Some(previous) = previous {
+        let previous_yaml = previous.to_yaml(false).map_err(|error| error.to_string())?;
+        history_snapshot("before-add-node", &previous_yaml)?;
+    }
+    workspace.proxies.extend(additions);
+    workspace.normalize();
+    save_workspace_files(&workspace, Some("node-added"))?;
+    config_status()
+}
+
+#[tauri::command]
 fn export_config() -> Result<String, String> {
     let workspace = load_workspace()?;
     let yaml = workspace
@@ -679,6 +743,7 @@ pub fn run() {
             validate_config,
             apply_dns_config,
             save_workspace_yaml,
+            add_node_yaml,
             export_config
         ])
         .run(tauri::generate_context!())
@@ -734,6 +799,12 @@ mod tests {
         let edited_yaml = workspace.to_yaml(false).unwrap();
         let edited_status = save_workspace_yaml(edited_yaml).unwrap();
         let second_export = export_config().unwrap();
+        let added_status = add_node_yaml(
+            "name: node-c\ntype: ss\nserver: c.example.com\nport: 443\ncipher: aes-128-gcm\npassword: secret\n"
+                .into(),
+        )
+        .unwrap();
+        let third_export = export_config().unwrap();
 
         match previous {
             Some(value) => std::env::set_var("YAMLVIM_DATA_DIR", value),
@@ -753,7 +824,7 @@ mod tests {
 
         let workspace_text = fs::read_to_string(data.join("workspace.json")).unwrap();
         let workspace: Workspace = serde_json::from_str(&workspace_text).unwrap();
-        assert_eq!(workspace.node_count(), 0);
+        assert_eq!(workspace.node_count(), 1);
 
         let generated = fs::read_to_string(data.join("config.yaml")).unwrap();
         assert!(!generated.contains("node-a"));
@@ -780,6 +851,9 @@ mod tests {
         assert_eq!(edited_status.node_count, 0);
         let second = fs::read_to_string(second_export).unwrap();
         assert!(!second.contains("node-a"));
+        assert_eq!(added_status.node_count, 1);
+        let third = fs::read_to_string(third_export).unwrap();
+        assert!(third.contains("node-c"));
         assert!(data.join("history").exists());
 
         let _ = fs::remove_dir_all(root);

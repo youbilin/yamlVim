@@ -1,13 +1,18 @@
-import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 
+import { AddNodeDialog } from '../components/AddNodeDialog';
 import { asRecord, asText } from '../lib/workspace';
+import { useImportDialog } from '../store/dialogs';
 import { useWorkspaceData } from '../store/workspace';
 
 export function NodesPage() {
   const view = useWorkspaceData((state) => state.view);
   const error = useWorkspaceData((state) => state.error);
   const load = useWorkspaceData((state) => state.load);
+  const showImport = useImportDialog((state) => state.show);
+  const [addOpen, setAddOpen] = useState(false);
+  const [notice, setNotice] = useState('');
 
   useEffect(() => {
     void load();
@@ -17,28 +22,24 @@ export function NodesPage() {
 
   return (
     <section className="page">
-      <header className="page-head">
-        <div>
-          <p className="eyebrow">NODES</p>
-          <h1>节点</h1>
-          <p className="lead">
-            导入的 YAML 会解析成当前 workspace 的节点池。导出只使用这里的节点，不再保留隐藏的原始配置。
-          </p>
-        </div>
-        <span className="chip chip-muted">{view ? `${view.nodeCount} nodes` : 'no workspace'}</span>
-      </header>
-
       <div className="card">
         <div className="card-head">
-          <div>
-            <h2 className="card-title">节点池</h2>
-            <p className="card-sub">来自导入 YAML 的 proxies；节点编辑和分享链接导入是下一步。</p>
+          <div className="card-title-row">
+            <h2 className="card-title">节点</h2>
+            <span className="chip chip-muted">{view ? `${view.nodeCount}` : '—'}</span>
           </div>
-          <Link className="btn btn-ghost" to="/config">
-            导入配置
-          </Link>
+          <div className="inline-actions">
+            <button className="btn btn-primary" type="button" onClick={() => setAddOpen(true)}>
+              <Plus size={15} />
+              新增节点
+            </button>
+            <button className="btn btn-ghost" type="button" onClick={showImport}>
+              导入 YAML
+            </button>
+          </div>
         </div>
 
+        {notice ? <p className="notice notice-ok">{notice}</p> : null}
         {error ? <p className="notice notice-info">{error}</p> : null}
 
         {nodes.length ? (
@@ -67,10 +68,23 @@ export function NodesPage() {
         ) : (
           <div className="empty">
             <strong>还没有节点</strong>
-            <p>在配置页导入 mihomo YAML 后，节点会自动出现在这里。</p>
+            <div className="inline-actions">
+              <button className="btn btn-primary" type="button" onClick={() => setAddOpen(true)}>
+                新增节点
+              </button>
+              <button className="btn btn-ghost" type="button" onClick={showImport}>
+                导入 YAML
+              </button>
+            </div>
           </div>
         )}
       </div>
+
+      <AddNodeDialog
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onAdded={(message) => setNotice(message)}
+      />
     </section>
   );
 }

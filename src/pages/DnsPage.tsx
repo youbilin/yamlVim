@@ -206,18 +206,6 @@ export function DnsPage() {
 
   return (
     <section className="page">
-      <header className="page-head">
-        <div>
-          <p className="eyebrow">DNS OVERRIDE</p>
-          <h1>DNS 覆写</h1>
-          <p className="lead">
-            替换完整 dns 配置，或按域名指定上游、固定 IP、绕过 fake-IP 与拦截。预览由真实
-            Rust 编译器生成。
-          </p>
-        </div>
-        <span className="chip chip-muted">{browser ? 'browser preview' : 'rust compiler'}</span>
-      </header>
-
       <div className="dns-layout">
         <div className="stack">
           <div className="card">
@@ -231,7 +219,6 @@ export function DnsPage() {
               />
               <span>
                 <strong>启用 DNS 覆写</strong>
-                <small>关闭时保留导入配置里的基础 dns 块，不生成替换块。</small>
               </span>
             </label>
           </div>
@@ -240,7 +227,6 @@ export function DnsPage() {
             <div className="card-head">
               <div>
                 <h2 className="card-title">基础设置</h2>
-                <p className="card-sub">对应 mihomo dns 块的全局字段。</p>
               </div>
             </div>
             <div className="form-grid">
@@ -322,7 +308,6 @@ export function DnsPage() {
             <div className="card-head">
               <div>
                 <h2 className="card-title">上游</h2>
-                <p className="card-sub">每行一个；支持 system、udp/tcp/tls/https/quic。</p>
               </div>
             </div>
             <div className="form-grid two">
@@ -373,7 +358,6 @@ export function DnsPage() {
             <div className="card-head">
               <div>
                 <h2 className="card-title">覆写规则</h2>
-                <p className="card-sub">按顺序解析；重复或重叠会在预览里提示。</p>
               </div>
               <button className="btn btn-ghost" type="button" onClick={addRule}>
                 <Plus size={15} />
@@ -462,11 +446,6 @@ export function DnsPage() {
             <div className="card-head">
               <div>
                 <h2 className="card-title">YAML 预览</h2>
-                <p className="card-sub">
-                  {fullPreview
-                    ? '基于当前 workspace 生成的完整配置。'
-                    : 'dns 与 hosts 片段；不写入内核。'}
-                </p>
               </div>
               <div className="preview-actions">
                 <button
@@ -532,10 +511,6 @@ export function DnsPage() {
             ) : null}
 
             <pre className="code-block preview-code">{activeYaml}</pre>
-            <p className="hint">
-              片段预览只显示 DNS 编译结果；“完整配置”和“应用”会基于当前 workspace
-              生成完整 YAML 并调用 mihomo -t。浏览器模式展示的是模拟结果。
-            </p>
           </div>
         </aside>
       </div>

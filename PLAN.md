@@ -69,7 +69,7 @@ On a clean Windows machine a user can:
   - live DNS query through the controller
   - DNS / fake-IP cache flush (with confirmation)
 - Editable workspace YAML:
-  - Config page edits the generated workspace YAML
+  - Export page edits the generated workspace YAML
   - saving updates the workspace and config.yaml, never a running mihomo
   - DNS YAML editor that syncs with the DNS form and preserves unknown fields
 - Core settings: ports, mode, log level, allow-lan, IPv6, controller endpoint.
@@ -762,8 +762,8 @@ cargo run -p yamlvim-mihomo --bin yamlvim-probe -- <path-to-mihomo>
 
 ### 2026-11-04 — M2 workspace ownership and safe mode
 
-- Tauri 2 + React 19 + Vite application shell with a monochrome sidebar and pages
-  for core, DNS, config, nodes, exits and rules.
+- Tauri 2 + React 19 + Vite application shell with a collapsible sidebar and
+  pages for core, live, nodes, exits, chains, rules, DNS and export.
 - App-local, portable `data/`: debug uses `project/data`, release uses
   `<exe>/data`, and `YAMLVIM_DATA_DIR` overrides it. No AppData.
 - **Workspace-only source of truth**: import parses `proxies`, `proxy-groups`,
@@ -772,8 +772,9 @@ cargo run -p yamlvim-mihomo --bin yamlvim-probe -- <path-to-mihomo>
 - **No hidden base**: export regenerates a new YAML from the current workspace.
   Deleting a node removes it from the export; old versions live only in
   `data/history`.
-- **Editable workspace**: the Config page has a raw YAML editor. Saving updates
-  `workspace.json` and `config.yaml`; it never starts, stops or reloads mihomo.
+- **Editable workspace**: the Export page shows the full YAML in an editable
+  textarea. Saving updates `workspace.json` and `config.yaml`; exporting writes a new
+  file; it never starts, stops or reloads mihomo.
 - Provider files are copied into `data/core/providers` and their `path` fields are
   rewritten to the app folder. GeoData is copied into `data/core`.
 - DNS override is compiled against the workspace, previewed as a full config,
@@ -783,7 +784,7 @@ cargo run -p yamlvim-mihomo --bin yamlvim-probe -- <path-to-mihomo>
 - Tauri commands: settings, `probe_core`, `compile_dns_preview`,
   `config_status`, `workspace_view`, `import_config`,
   `preview_dns_config`, `validate_config`, `apply_dns_config`,
-  `save_workspace_yaml`, `export_config`.
+  `save_workspace_yaml`, `add_node_yaml`, `export_config`.
 - 39 Rust tests + 1 Tauri library integration test, frontend build, fmt and
   clippy pass. `mihomo v1.19.32 -t` accepts the workspace-generated YAML.
 - The Tauri shell compiled with MSVC Build Tools 18 (VS 2026) via

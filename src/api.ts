@@ -227,6 +227,14 @@ export async function applyDnsConfig(input: DnsInput): Promise<ConfigApplyResult
 }
 
 
+
+export async function addNodeYaml(yaml: string): Promise<ConfigStatus> {
+  if (!isTauriRuntime()) {
+    throw new Error('Browser mode cannot add nodes to the desktop workspace.');
+  }
+  return invoke<ConfigStatus>('add_node_yaml', { yaml });
+}
+
 export async function saveWorkspaceYaml(yaml: string): Promise<ConfigStatus> {
   if (!isTauriRuntime()) {
     throw new Error('Browser mode cannot save the workspace.');

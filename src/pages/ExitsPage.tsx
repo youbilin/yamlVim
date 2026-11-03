@@ -1,13 +1,14 @@
 import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
 
 import { asArray, asRecord, asText } from '../lib/workspace';
+import { useImportDialog } from '../store/dialogs';
 import { useWorkspaceData } from '../store/workspace';
 
 export function ExitsPage() {
   const view = useWorkspaceData((state) => state.view);
   const error = useWorkspaceData((state) => state.error);
   const load = useWorkspaceData((state) => state.load);
+  const showImport = useImportDialog((state) => state.show);
 
   useEffect(() => {
     void load();
@@ -17,26 +18,15 @@ export function ExitsPage() {
 
   return (
     <section className="page">
-      <header className="page-head">
-        <div>
-          <p className="eyebrow">EXITS</p>
-          <h1>出口</h1>
-          <p className="lead">
-            导入 YAML 的 proxy-groups 会成为出口。导出时只写入当前 workspace 的出口和成员。
-          </p>
-        </div>
-        <span className="chip chip-muted">{view ? `${view.exitCount} exits` : 'no workspace'}</span>
-      </header>
-
       <div className="card">
         <div className="card-head">
-          <div>
-            <h2 className="card-title">策略组</h2>
-            <p className="card-sub">select / url-test / fallback / load-balance 会原样保留。</p>
+          <div className="card-title-row">
+            <h2 className="card-title">出口</h2>
+            <span className="chip chip-muted">{view ? `${view.exitCount}` : '—'}</span>
           </div>
-          <Link className="btn btn-ghost" to="/config">
-            导入配置
-          </Link>
+          <button className="btn btn-ghost" type="button" onClick={showImport}>
+            导入 YAML
+          </button>
         </div>
 
         {error ? <p className="notice notice-info">{error}</p> : null}
@@ -65,7 +55,9 @@ export function ExitsPage() {
         ) : (
           <div className="empty">
             <strong>还没有出口</strong>
-            <p>导入 YAML 后，proxy-groups 会自动显示在这里。</p>
+            <button className="btn btn-primary" type="button" onClick={showImport}>
+              导入 YAML
+            </button>
           </div>
         )}
       </div>
