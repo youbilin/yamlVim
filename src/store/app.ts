@@ -14,12 +14,13 @@ interface AppStore {
   error: string | null;
   load: () => Promise<void>;
   setCorePath: (corePath: string) => void;
+  setControllerEndpoint: (endpoint: string) => void;
   save: () => Promise<void>;
   runProbe: () => Promise<void>;
 }
 
 export const useApp = create<AppStore>((set, get) => ({
-  settings: { corePath: 'mihomo' },
+  settings: { corePath: 'mihomo', controllerEndpoint: '', controllerSecret: '' },
   probe: null,
   loaded: false,
   error: null,
@@ -36,6 +37,9 @@ export const useApp = create<AppStore>((set, get) => ({
   },
   setCorePath(corePath) {
     set((state) => ({ settings: { ...state.settings, corePath }, probe: null }));
+  },
+  setControllerEndpoint(endpoint) {
+    set((state) => ({ settings: { ...state.settings, controllerEndpoint: endpoint } }));
   },
   async save() {
     await saveSettings(get().settings);

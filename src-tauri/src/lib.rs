@@ -15,7 +15,7 @@ use yamlvim_core::{
 };
 use yamlvim_mihomo::{
     probe_core as probe_core_binary, validate_config as validate_config_binary, ConfigValidation,
-    CoreProbe, ProbeOptions, SystemRunner,
+    ControllerClient, ControllerTransport, CoreProbe, DelayResult, ProbeOptions, SystemRunner,
 };
 
 const GEODATA_FILES: &[&str] = &[
@@ -34,12 +34,18 @@ const GEODATA_FILES: &[&str] = &[
 #[serde(rename_all = "camelCase")]
 struct AppSettings {
     core_path: String,
+    #[serde(default)]
+    controller_endpoint: String,
+    #[serde(default)]
+    controller_secret: String,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             core_path: "mihomo".into(),
+            controller_endpoint: String::new(),
+            controller_secret: String::new(),
         }
     }
 }
@@ -1021,6 +1027,56 @@ fn add_node_yaml(yaml: String) -> Result<ConfigStatus, String> {
 }
 
 #[tauri::command]
+async fn controller_get(path: String) -> Result<String, String> {
+    let settings = load_settings()?;
+    let endpoint = settings.controller_endpoint.trim().to_string();
+    if endpoint.is_empty() {
+        return Err("请先在内核页配置控制器地址和密钥".into());
+    }
+    let client = ControllerClient::from_parts(
+        &endpoint,
+        &settings.controller_secret,
+        ControllerTransport::Tcp,
+    );
+    client.get(&path)
+}
+
+#[tauri::command]
+async fn controller_delay(name: String) -> Result<DelayResult, String> {
+    let settings = load_settings()?;
+    let endpoint = settings.controller_endpoint.trim().to_string();
+    if endpoint.is_empty() {
+        return Err("请先配置控制器".into());
+    }
+    let client = ControllerClient::from_parts(
+        &endpoint,
+        &settings.controller_secret,
+        ControllerTransport::Tcp,
+    );
+    let result = client.test_delay(&name, "https://www.gstatic.com/generate_204", 5_000);
+    match result {
+        Ok(delay) => Ok(DelayResult {
+            name,
+            delay_ms: Some(delay),
+            error: None,
+        }),
+        Err(error) => Ok(DelayResult {
+            name,
+            delay_ms: None,
+            error: Some(error),
+        }),
+    }
+}
+
+#[tauri::command]
+fn save_controller(endpoint: String, secret: String) -> Result<(), String> {
+    let mut settings = load_settings()?;
+    settings.controller_endpoint = endpoint.trim().to_string();
+    settings.controller_secret = secret.trim().to_string();
+    save_settings(settings)
+}
+
+#[tauri::command]
 fn export_config() -> Result<String, String> {
     let workspace = load_workspace()?;
     let yaml = workspace
@@ -1057,7 +1113,10 @@ pub fn run() {
             export_config,
             import_source,
             import_config_text,
-            import_node_links
+            import_node_links,
+            controller_get,
+            controller_delay,
+            save_controller
         ])
         .run(tauri::generate_context!())
         .expect("error while running YamlVim");

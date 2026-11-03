@@ -11,7 +11,11 @@ import type {
 } from './types';
 
 const SETTINGS_KEY = 'yamlvim.settings.v1';
-const DEFAULT_SETTINGS: AppSettings = { corePath: 'mihomo' };
+const DEFAULT_SETTINGS: AppSettings = {
+  corePath: 'mihomo',
+  controllerEndpoint: '',
+  controllerSecret: '',
+};
 
 export function isTauriRuntime(): boolean {
   return (
@@ -32,7 +36,11 @@ export async function loadSettings(): Promise<AppSettings> {
     if (!raw) return DEFAULT_SETTINGS;
     try {
       const parsed = JSON.parse(raw) as Partial<AppSettings>;
-      return { corePath: parsed.corePath || DEFAULT_SETTINGS.corePath };
+      return {
+        corePath: parsed.corePath || DEFAULT_SETTINGS.corePath,
+        controllerEndpoint: parsed.controllerEndpoint ?? '',
+        controllerSecret: parsed.controllerSecret ?? '',
+      };
     } catch {
       return DEFAULT_SETTINGS;
     }
@@ -183,6 +191,38 @@ export async function saveWorkspaceYaml(yaml: string): Promise<ConfigStatus> {
     throw new Error('Browser mode cannot save the workspace.');
   }
   return invoke<ConfigStatus>('save_workspace_yaml', { yaml });
+}
+
+
+export interface ControllerConfig {
+  endpoint: string;
+  secret: string;
+}
+
+export interface ControllerConnection {
+  id: string;
+  host: string;
+  destination: string;
+  network: string;
+  proxyChain: string[];
+  upload: number;
+  download: number;
+  start: string;
+}
+
+export async function saveController(endpoint: string, secret: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('save_controller', { endpoint, secret });
+}
+
+export async function controllerGet(path: string): Promise<string> {
+  if (!isTauriRuntime()) throw new Error('Browser mode: controller not available.');
+  return invoke<string>('controller_get', { path });
+}
+
+export async function controllerDelay(name: string): Promise<{ name: string; delayMs?: number; error?: string }> {
+  if (!isTauriRuntime()) throw new Error('Browser mode: controller not available.');
+  return invoke<{ name: string; delayMs?: number; error?: string }>('controller_delay', { name });
 }
 
 export async function exportConfig(): Promise<string> {

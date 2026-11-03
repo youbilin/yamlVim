@@ -27,6 +27,7 @@ import { CorePage } from './pages/CorePage';
 import { DnsPage } from './pages/DnsPage';
 import { ExitsPage } from './pages/ExitsPage';
 import { ExportPage } from './pages/ExportPage';
+import { LivePage } from './pages/LivePage';
 import { NodesPage } from './pages/NodesPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 import { RulesPage } from './pages/RulesPage';
@@ -145,16 +146,7 @@ function Shell() {
             <Route path="/dns" element={<DnsPage />} />
             <Route path="/config" element={<Navigate to="/export" replace />} />
             <Route path="/settings" element={<Navigate to="/core" replace />} />
-            <Route
-              path="/live"
-              element={
-                <PlaceholderPage
-                  title="实时连接"
-                  description="只读 attach 控制器，查看实时路径。延迟测试仅对控制器已知节点可用。"
-                  milestone="M2"
-                />
-              }
-            />
+            <Route path="/live" element={<LivePage />} />
             <Route path="/nodes" element={<NodesPage />} />
             <Route path="/exits" element={<ExitsPage />} />
             <Route

@@ -49,21 +49,19 @@ export function ImportDialog() {
     <Dialog title="导入" onClose={hide}>
       <form onSubmit={handleImport}>
         <div className="dialog-body">
+          <p className="lead">配置文件路径、订阅链接、节点分享链接、粘贴 YAML，自动识别。</p>
           <label className="field">
-            <span>导入内容</span>
             <textarea
               className="textarea mono node-editor"
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder={'D:\\path\\to\\config.yaml\nhttps://example.com/subscribe\nss://… 或 vmess://…\n或直接粘贴 mihomo YAML'}
+              placeholder={'D:\\path\\to\\config.yaml\nhttps://example.com/subscribe\nss://… vmess://…\n或直接粘贴 mihomo YAML'}
               rows={8}
               spellCheck={false}
               autoFocus
             />
           </label>
-          {browser ? (
-            <p className="notice notice-info">浏览器模式不能读取本地文件或网络，请使用桌面版。</p>
-          ) : null}
+          {browser ? <p className="notice notice-info">浏览器模式请使用桌面版。</p> : null}
           {message ? <p className="notice notice-ok">{message}</p> : null}
           {error ? <p className="notice notice-warn">{error}</p> : null}
         </div>
@@ -72,10 +70,7 @@ export function ImportDialog() {
             <button
               className="btn btn-primary"
               type="button"
-              onClick={() => {
-                hide();
-                navigate('/nodes');
-              }}
+              onClick={() => { hide(); navigate('/nodes'); }}
             >
               查看节点
             </button>

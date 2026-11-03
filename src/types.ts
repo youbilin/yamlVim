@@ -12,6 +12,8 @@ export interface CoreProbe {
 
 export interface AppSettings {
   corePath: string;
+  controllerEndpoint: string;
+  controllerSecret: string;
 }
 
 export interface WorkspaceView {
