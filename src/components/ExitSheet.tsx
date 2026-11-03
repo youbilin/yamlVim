@@ -4,7 +4,7 @@ import { Check } from 'lucide-react';
 import { errorMessage } from '../api';
 import type { RuleCatalogItem } from '../api';
 import { CATALOG_BY_ID } from '../data/rule-catalog';
-import { ALL_COMBOS } from '../data/rule-combos';
+import { RECOMMENDED_COMBOS } from '../data/rule-combos';
 import { Select } from './Select';
 import { SideSheet } from './SideSheet';
 import { toast } from '../store/toast';
@@ -78,7 +78,7 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
   };
 
   const toggleCombo = (comboId: string) => {
-    const combo = ALL_COMBOS.find((item) => item.id === comboId);
+    const combo = RECOMMENDED_COMBOS.find((item) => item.id === comboId);
     if (!combo) return;
     const active = combo.entries.every((id) => selectedRuleSets.has(id));
     setSelectedRuleSets((current) => {
@@ -90,7 +90,7 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
       return next;
     });
     if (!active) {
-      const isAutoName = !name.trim() || ALL_COMBOS.some((item) => item.nameZh === name);
+      const isAutoName = !name.trim() || RECOMMENDED_COMBOS.some((item) => item.nameZh === name);
       if (isAutoName) setName(combo.nameZh);
     }
   };
@@ -218,7 +218,7 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
           </div>
           <span className="hint">自动包含全部 {nodes.length} 个节点</span>
           <div className="preset-list combo-pick-list">
-            {ALL_COMBOS.map((combo) => {
+            {RECOMMENDED_COMBOS.map((combo) => {
               const active = combo.entries.every((id) => selectedRuleSets.has(id));
               return (
                 <button

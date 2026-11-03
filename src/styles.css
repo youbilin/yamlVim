@@ -2474,3 +2474,16 @@ body,
   margin-top: 0;
   gap: 6px;
 }
+.sidebar-head {
+  padding: 0;
+  justify-content: space-between;
+}
+
+.sidebar.collapsed .sidebar-head {
+  padding: 0;
+  justify-content: flex-start;
+}
+
+.sidebar.collapsed:hover .sidebar-head {
+  justify-content: space-between;
+}
