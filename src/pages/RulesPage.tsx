@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from 'lucide-react';
 
-import { saveRules } from '../api';
+import { addRuleSets, saveRules } from '../api';
+import type { RuleCatalogItem } from '../api';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { RuleSheet } from '../components/RuleSheet';
 import { asRecord, asText } from '../lib/workspace';
@@ -44,6 +45,13 @@ export function RulesPage() {
       next.splice(editing.index, 1, ...incoming);
     }
     await persist(next);
+    setEditing(null);
+  };
+
+  const addCatalogRuleSets = async (items: RuleCatalogItem[], target: string) => {
+    await addRuleSets(items, target);
+    await load();
+    toast.success(`已添加 ${items.length} 个规则集`);
     setEditing(null);
   };
 
@@ -157,8 +165,8 @@ export function RulesPage() {
         <RuleSheet
           initial={editing.index === null ? null : editing.value}
           targets={targets}
-          ruleSets={ruleSets}
           onSave={saveRule}
+          onAddRuleSets={addCatalogRuleSets}
           onClose={() => setEditing(null)}
         />
       ) : null}

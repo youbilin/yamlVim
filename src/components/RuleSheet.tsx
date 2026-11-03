@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { Check, Layers, ListPlus, PencilLine, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, Layers, ListPlus, PencilLine, Search, Sparkles } from 'lucide-react';
 
-import { errorMessage } from '../api';
+import { errorMessage, fetchRuleCatalog } from '../api';
+import type { RuleCatalogItem } from '../api';
 import { Select } from './Select';
 import { SideSheet } from './SideSheet';
 import { toast } from '../store/toast';
@@ -89,8 +90,8 @@ interface RuleDraft {
 interface RuleSheetProps {
   initial: string | null;
   targets: string[];
-  ruleSets: string[];
   onSave: (rules: string[]) => Promise<void>;
+  onAddRuleSets: (items: RuleCatalogItem[], target: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -129,7 +130,7 @@ function presetRule(preset: Preset, target: string): string {
   return [preset.type, preset.value, resolved].filter(Boolean).join(',');
 }
 
-export function RuleSheet({ initial, targets, ruleSets, onSave, onClose }: RuleSheetProps) {
+export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: RuleSheetProps) {
   const targetOptions = Array.from(new Set(['DIRECT', 'REJECT', ...targets]));
   const defaultTarget =
     targetOptions.find((target) => target !== 'DIRECT' && target !== 'REJECT') ?? 'DIRECT';
@@ -140,7 +141,10 @@ export function RuleSheet({ initial, targets, ruleSets, onSave, onClose }: RuleS
   const [presetTarget, setPresetTarget] = useState(defaultTarget);
   const [selectedPresets, setSelectedPresets] = useState<Set<string>>(new Set());
   const [batch, setBatch] = useState('');
-  const [selectedRuleSets, setSelectedRuleSets] = useState<Set<string>>(new Set());
+  const [catalogQuery, setCatalogQuery] = useState('');
+  const [catalog, setCatalog] = useState<RuleCatalogItem[]>([]);
+  const [catalogBusy, setCatalogBusy] = useState(false);
+  const [selectedCatalog, setSelectedCatalog] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
 
   const togglePreset = (id: string) => {
@@ -152,11 +156,29 @@ export function RuleSheet({ initial, targets, ruleSets, onSave, onClose }: RuleS
     });
   };
 
-  const toggleRuleSet = (name: string) => {
-    setSelectedRuleSets((current) => {
+  const searchCatalog = async (query: string) => {
+    setCatalogBusy(true);
+    try {
+      setCatalog(await fetchRuleCatalog(query));
+    } catch (reason) {
+      toast.error(errorMessage(reason));
+    } finally {
+      setCatalogBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab === 'rulesets' && !catalog.length) {
+      void searchCatalog('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  const toggleCatalog = (providerName: string) => {
+    setSelectedCatalog((current) => {
       const next = new Set(current);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
+      if (next.has(providerName)) next.delete(providerName);
+      else next.add(providerName);
       return next;
     });
   };
@@ -187,7 +209,23 @@ export function RuleSheet({ initial, targets, ruleSets, onSave, onClose }: RuleS
     .map((line) => line.trim())
     .filter(Boolean);
 
-  const ruleSetRules = [...selectedRuleSets].map((name) => `RULE-SET,${name},${presetTarget}`);
+  const selectedCatalogItems = catalog.filter((item) => selectedCatalog.has(item.providerName));
+
+
+  const addCatalog = async () => {
+    if (!selectedCatalogItems.length) {
+      toast.error('请选择规则集');
+      return;
+    }
+    setBusy(true);
+    try {
+      await onAddRuleSets(selectedCatalogItems, presetTarget);
+    } catch (reason) {
+      toast.error(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const saveManual = () => {
     if (draft.type !== 'MATCH' && !draft.value.trim()) {
@@ -207,7 +245,7 @@ export function RuleSheet({ initial, targets, ruleSets, onSave, onClose }: RuleS
             onClick={() => setTab('presets')}
           >
             <Sparkles size={14} />
-            内置规则
+            常用规则
           </button>
           <button
             className={tab === 'manual' ? 'sheet-tab active' : 'sheet-tab'}
@@ -225,16 +263,14 @@ export function RuleSheet({ initial, targets, ruleSets, onSave, onClose }: RuleS
             <ListPlus size={14} />
             批量
           </button>
-          {ruleSets.length ? (
-            <button
-              className={tab === 'rulesets' ? 'sheet-tab active' : 'sheet-tab'}
-              type="button"
-              onClick={() => setTab('rulesets')}
-            >
-              <Layers size={14} />
-              规则集
-            </button>
-          ) : null}
+          <button
+            className={tab === 'rulesets' ? 'sheet-tab active' : 'sheet-tab'}
+            type="button"
+            onClick={() => setTab('rulesets')}
+          >
+            <Layers size={14} />
+            规则集
+          </button>
         </div>
       ) : null}
 
@@ -385,6 +421,30 @@ export function RuleSheet({ initial, targets, ruleSets, onSave, onClose }: RuleS
 
       {tab === 'rulesets' ? (
         <div className="sheet-section">
+          <div className="catalog-search">
+            <input
+              className="input mono"
+              value={catalogQuery}
+              onChange={(event) => setCatalogQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void searchCatalog(catalogQuery);
+                }
+              }}
+              placeholder="搜索 MetaCubeX 规则集，例如 openai、netflix、cn"
+              spellCheck={false}
+            />
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={() => void searchCatalog(catalogQuery)}
+              disabled={catalogBusy}
+            >
+              <Search size={14} />
+              搜索
+            </button>
+          </div>
           <label className="field">
             <span>目标</span>
             <Select
@@ -394,32 +454,43 @@ export function RuleSheet({ initial, targets, ruleSets, onSave, onClose }: RuleS
               ariaLabel="规则集目标"
             />
           </label>
+          {catalogBusy ? (
+            <div className="catalog-loading">在线加载 MetaCubeX 规则集…</div>
+          ) : null}
           <div className="preset-list">
-            {ruleSets.map((name) => (
+            {catalog.map((item) => (
               <button
                 type="button"
-                key={name}
-                className={`preset-row ${selectedRuleSets.has(name) ? 'selected' : ''}`}
-                onClick={() => toggleRuleSet(name)}
+                key={item.providerName}
+                className={`preset-row ${selectedCatalog.has(item.providerName) ? 'selected' : ''}`}
+                onClick={() => toggleCatalog(item.providerName)}
               >
                 <span className="preset-check">
-                  {selectedRuleSets.has(name) ? <Check size={12} /> : null}
+                  {selectedCatalog.has(item.providerName) ? <Check size={12} /> : null}
                 </span>
                 <span className="preset-main">
-                  <strong>{name}</strong>
-                  <span>RULE-SET · {name}</span>
+                  <strong>{item.slug}</strong>
+                  <span>
+                    {item.kind} · {item.behavior} · {item.format}
+                  </span>
                 </span>
+                {item.popular ? <span className="chip chip-muted">热门</span> : null}
               </button>
             ))}
           </div>
+          {!catalogBusy && !catalog.length ? (
+            <div className="catalog-empty">没有匹配的规则集，换个关键词或检查网络。</div>
+          ) : null}
           <div className="sheet-actions">
             <button
               className="btn btn-primary"
               type="button"
-              onClick={() => void submit(ruleSetRules)}
-              disabled={busy || !ruleSetRules.length}
+              onClick={() => void addCatalog()}
+              disabled={busy || !selectedCatalogItems.length}
             >
-              {ruleSetRules.length ? `添加 ${ruleSetRules.length} 条规则` : '添加规则'}
+              {selectedCatalogItems.length
+                ? `添加 ${selectedCatalogItems.length} 个规则集`
+                : '添加规则集'}
             </button>
           </div>
         </div>

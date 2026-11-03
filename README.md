@@ -11,6 +11,10 @@ Standalone mihomo routing and DNS workbench. See [PLAN.md](PLAN.md) for the desi
   only. There is no hidden base config and no history layer.
 - **Visual editors**: Nodes, Exits, Rules and Chains support add/edit/delete;
   nodes can be disabled, renamed or removed with group references normalized.
+  Rule and exit creation use right-side sheets with node selection, presets and
+  batch input.
+- **Online rule catalog**: the Rules sheet searches MetaCubeX/meta-rules-dat on
+  GitHub and adds http `.mrs` providers plus matching `RULE-SET` rules.
 - **Export page**: the full YAML is editable, `mihomo -t` can validate it, a line
   diff compares it with the latest export, and a new timestamped YAML is written.
 - **Files page**: lists every exported YAML, previews it, deletes it, or loads it

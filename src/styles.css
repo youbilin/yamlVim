@@ -2270,3 +2270,34 @@ body,
   font-size: 11px;
 }
 
+
+/* === Sidebar header sizing === */
+.sidebar-head {
+  height: 48px;
+  min-height: 48px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-toggle,
+.github-link {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+}
+
+.sidebar-toggle svg,
+.github-link svg {
+  width: 18px;
+  height: 18px;
+}
+
+.sidebar.collapsed .sidebar-head {
+  justify-content: flex-end;
+}
+
+.sidebar.collapsed:hover .sidebar-head {
+  justify-content: space-between;
+}
+

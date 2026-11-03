@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -53,6 +54,26 @@ impl Default for AppSettings {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuleCatalogItem {
+    slug: String,
+    provider_name: String,
+    kind: String,
+    behavior: String,
+    url: String,
+    format: String,
+    popular: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubCatalogEntry {
+    name: String,
+    download_url: Option<String>,
+}
+
+static RULE_CATALOG_CACHE: OnceLock<Mutex<Option<Vec<RuleCatalogItem>>>> = OnceLock::new();
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1053,6 +1074,165 @@ fn set_nodes_disabled(names: Vec<String>, disabled: bool) -> Result<ConfigStatus
     config_status()
 }
 
+fn fetch_github_catalog(kind: &str) -> Result<Vec<RuleCatalogItem>, String> {
+    let url = format!(
+        "https://api.github.com/repos/MetaCubeX/meta-rules-dat/contents/geo/{kind}?ref=meta"
+    );
+    let response = ureq::get(&url)
+        .set("User-Agent", "YamlVim/0.1")
+        .set("Accept", "application/vnd.github+json")
+        .timeout(Duration::from_secs(25))
+        .call()
+        .map_err(|error| format!("GitHub 请求失败：{error}"))?;
+    let text = response
+        .into_string()
+        .map_err(|error| format!("GitHub 响应读取失败：{error}"))?;
+    let entries: Vec<GithubCatalogEntry> =
+        serde_json::from_str(&text).map_err(|error| format!("规则库解析失败：{error}"))?;
+    let behavior = if kind == "geoip" { "ipcidr" } else { "domain" };
+    let mut items = Vec::new();
+    for entry in entries {
+        let Some(file_name) = entry.name.strip_suffix(".mrs") else {
+            continue;
+        };
+        let Some(url) = entry.download_url else {
+            continue;
+        };
+        let provider_name = format!("{kind}-{file_name}");
+        let popular = matches!(
+            file_name,
+            "openai"
+                | "google"
+                | "github"
+                | "youtube"
+                | "netflix"
+                | "telegram"
+                | "twitter"
+                | "spotify"
+                | "microsoft"
+                | "apple"
+                | "category-ads-all"
+                | "private"
+                | "cn"
+        );
+        items.push(RuleCatalogItem {
+            slug: file_name.to_string(),
+            provider_name,
+            kind: kind.to_string(),
+            behavior: behavior.to_string(),
+            url,
+            format: "mrs".into(),
+            popular,
+        });
+    }
+    Ok(items)
+}
+
+fn meta_catalog(query: &str) -> Result<Vec<RuleCatalogItem>, String> {
+    let cache = RULE_CATALOG_CACHE.get_or_init(|| Mutex::new(None));
+    let mut guard = cache.lock().map_err(|error| error.to_string())?;
+    if guard.is_none() {
+        let mut all = Vec::new();
+        let mut errors = Vec::new();
+        for kind in ["geosite", "geoip"] {
+            match fetch_github_catalog(kind) {
+                Ok(mut items) => all.append(&mut items),
+                Err(error) => errors.push(error),
+            }
+        }
+        if all.is_empty() {
+            return Err(errors.join("；"));
+        }
+        *guard = Some(all);
+    }
+    let query = query.trim().to_lowercase();
+    let mut items = guard.as_ref().cloned().unwrap_or_default();
+    if !query.is_empty() {
+        items
+            .retain(|item| item.slug.to_lowercase().contains(&query) || item.kind.contains(&query));
+    }
+    items.sort_by(|left, right| {
+        right
+            .popular
+            .cmp(&left.popular)
+            .then_with(|| left.slug.cmp(&right.slug))
+    });
+    items.truncate(400);
+    Ok(items)
+}
+
+#[tauri::command]
+async fn fetch_rule_catalog(query: String) -> Result<Vec<RuleCatalogItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || meta_catalog(&query))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn add_rule_sets(items: Vec<RuleCatalogItem>, target: String) -> Result<ConfigStatus, String> {
+    if items.is_empty() {
+        return Err("没有选择规则集".into());
+    }
+    let target = target.trim();
+    if target.is_empty() {
+        return Err("请选择目标".into());
+    }
+    let mut workspace = load_workspace()?;
+    let rules_dir = core_data_dir()?.join("rules");
+    fs::create_dir_all(&rules_dir)
+        .map_err(|error| format!("failed to create {}: {error}", rules_dir.display()))?;
+
+    for item in items {
+        let provider_name = item.provider_name;
+        let provider_key = serde_yaml::Value::String(provider_name.clone());
+        if !workspace.rule_providers.contains_key(&provider_key) {
+            let mut provider = Mapping::new();
+            provider.insert(
+                serde_yaml::Value::String("type".into()),
+                serde_yaml::Value::String("http".into()),
+            );
+            provider.insert(
+                serde_yaml::Value::String("behavior".into()),
+                serde_yaml::Value::String(item.behavior),
+            );
+            provider.insert(
+                serde_yaml::Value::String("url".into()),
+                serde_yaml::Value::String(item.url),
+            );
+            provider.insert(
+                serde_yaml::Value::String("path".into()),
+                serde_yaml::Value::String(format!(
+                    "./rules/{}.mrs",
+                    sanitize_component(&provider_name)
+                )),
+            );
+            provider.insert(
+                serde_yaml::Value::String("interval".into()),
+                serde_yaml::Value::Number(serde_yaml::Number::from(86400)),
+            );
+            provider.insert(
+                serde_yaml::Value::String("format".into()),
+                serde_yaml::Value::String(item.format),
+            );
+            workspace
+                .rule_providers
+                .insert(provider_key, serde_yaml::Value::Mapping(provider));
+        }
+        let rule = format!("RULE-SET,{provider_name},{target}");
+        if !workspace
+            .rules
+            .iter()
+            .any(|value| value.as_str() == Some(rule.as_str()))
+        {
+            workspace.rules.push(serde_yaml::Value::String(rule));
+        }
+    }
+
+    workspace.normalize();
+    save_workspace_files(&workspace, Some("rule-sets-add"))?;
+    config_status()
+}
+
 #[tauri::command]
 fn node_yaml(name: String) -> Result<String, String> {
     let workspace = load_workspace()?;
@@ -1548,6 +1728,8 @@ pub fn run() {
             update_node_yaml,
             delete_nodes,
             set_nodes_disabled,
+            fetch_rule_catalog,
+            add_rule_sets,
             delete_node,
             toggle_node,
             exit_yaml,
@@ -1639,6 +1821,19 @@ mod tests {
         )
         .unwrap();
         let exit_deleted = delete_exit("Test Group".into()).unwrap();
+        let rule_set_status = add_rule_sets(
+            vec![RuleCatalogItem {
+                slug: "test".into(),
+                provider_name: "geosite-test".into(),
+                kind: "geosite".into(),
+                behavior: "domain".into(),
+                url: "https://example.com/test.mrs".into(),
+                format: "mrs".into(),
+                popular: false,
+            }],
+            "DIRECT".into(),
+        )
+        .unwrap();
 
         match previous {
             Some(value) => std::env::set_var("YAMLVIM_DATA_DIR", value),
@@ -1696,6 +1891,7 @@ mod tests {
         assert_eq!(batch_deleted.node_count, 0);
         assert_eq!(exit_created.exit_count, 2);
         assert_eq!(exit_deleted.exit_count, 1);
+        assert_eq!(rule_set_status.rule_count, 2);
         let _ = fs::remove_dir_all(root);
     }
 }

@@ -267,6 +267,52 @@ export async function loadExportAsWorkspace(path: string): Promise<ConfigStatus>
   return invoke<ConfigStatus>('load_export_as_workspace', { path });
 }
 
+export interface RuleCatalogItem {
+  slug: string;
+  providerName: string;
+  kind: string;
+  behavior: string;
+  url: string;
+  format: string;
+  popular: boolean;
+}
+
+export async function fetchRuleCatalog(query: string): Promise<RuleCatalogItem[]> {
+  if (!isTauriRuntime()) {
+    return [
+      {
+        slug: 'openai',
+        providerName: 'geosite-openai',
+        kind: 'geosite',
+        behavior: 'domain',
+        url: '',
+        format: 'mrs',
+        popular: true,
+      },
+      {
+        slug: 'netflix',
+        providerName: 'geosite-netflix',
+        kind: 'geosite',
+        behavior: 'domain',
+        url: '',
+        format: 'mrs',
+        popular: true,
+      },
+    ];
+  }
+  return invoke<RuleCatalogItem[]>('fetch_rule_catalog', { query });
+}
+
+export async function addRuleSets(
+  items: RuleCatalogItem[],
+  target: string,
+): Promise<ConfigStatus> {
+  if (!isTauriRuntime()) {
+    throw new Error('Browser mode cannot add rule sets.');
+  }
+  return invoke<ConfigStatus>('add_rule_sets', { items, target });
+}
+
 export async function deleteNodes(names: string[]): Promise<ConfigStatus> {
   return invoke<ConfigStatus>('delete_nodes', { names });
 }
