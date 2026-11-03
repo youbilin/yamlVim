@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { Check, Users } from 'lucide-react';
 
 import { errorMessage } from '../api';
+import type { RuleCatalogItem } from '../api';
+import { CATALOG_BY_ID } from '../data/rule-catalog';
+import { ALL_COMBOS } from '../data/rule-combos';
 import { Select } from './Select';
 import { SideSheet } from './SideSheet';
 import { toast } from '../store/toast';
@@ -17,7 +20,12 @@ interface ExitSheetProps {
   originalName: string | null;
   initialYaml: string;
   nodes: string[];
-  onSave: (originalName: string | null, yaml: string) => Promise<void>;
+  onSave: (
+    originalName: string | null,
+    yaml: string,
+    ruleSets?: RuleCatalogItem[],
+    target?: string,
+  ) => Promise<void>;
   onClose: () => void;
 }
 
@@ -35,6 +43,7 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
   const [name, setName] = useState('');
   const [type, setType] = useState('select');
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectedRuleSets, setSelectedRuleSets] = useState<Set<string>>(new Set());
   const [yaml, setYaml] = useState(initialYaml);
   const [busy, setBusy] = useState(false);
 
@@ -52,6 +61,33 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
   const toggleAll = () => {
     setSelected(allSelected ? new Set() : new Set(nodes));
   };
+
+  const toggleCombo = (comboId: string) => {
+    const combo = ALL_COMBOS.find((item) => item.id === comboId);
+    if (!combo) return;
+    setSelectedRuleSets((current) => {
+      const next = new Set(current);
+      const allSelected = combo.entries.every((id) => next.has(id));
+      for (const id of combo.entries) {
+        if (allSelected) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const selectedRuleSetItems: RuleCatalogItem[] = [...selectedRuleSets]
+    .map((id) => CATALOG_BY_ID.get(id))
+    .filter((entry) => Boolean(entry))
+    .map((entry) => ({
+      slug: entry!.slug,
+      providerName: entry!.providerName,
+      kind: entry!.kind,
+      behavior: entry!.behavior,
+      url: entry!.url,
+      format: entry!.format,
+      popular: entry!.popular,
+    }));
 
   const generateYaml = () => {
     const lines = [`name: ${name.trim()}`, `type: ${type}`, 'proxies:'];
@@ -73,7 +109,7 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
     }
     setBusy(true);
     try {
-      await onSave(null, generateYaml());
+      await onSave(null, generateYaml(), selectedRuleSetItems, name.trim());
     } catch (reason) {
       toast.error(errorMessage(reason));
     } finally {
@@ -163,6 +199,28 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
               </button>
             ))}
           </div>
+          <div className="sheet-subtitle">推荐规则集组合</div>
+          <div className="preset-list combo-pick-list">
+            {ALL_COMBOS.map((combo) => {
+              const active = combo.entries.every((id) => selectedRuleSets.has(id));
+              return (
+                <button
+                  type="button"
+                  key={combo.id}
+                  className={active ? 'preset-row selected' : 'preset-row'}
+                  onClick={() => toggleCombo(combo.id)}
+                >
+                  <span className="preset-check">{active ? <Check size={12} /> : null}</span>
+                  <span className="preset-main">
+                    <strong>{combo.nameZh}</strong>
+                    <span>{combo.description}</span>
+                  </span>
+                  <span className="chip chip-muted">{combo.entryCount}</span>
+                </button>
+              );
+            })}
+          </div>
+          <span className="hint">已选 {selectedRuleSets.size} 个规则集</span>
           <div className="sheet-actions">
             <button
               className="btn btn-primary"
@@ -170,7 +228,7 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
               onClick={() => void saveGenerated()}
               disabled={busy}
             >
-              创建策略组
+              {selectedRuleSets.size ? '创建策略组并导入规则' : '创建策略组'}
             </button>
           </div>
         </div>

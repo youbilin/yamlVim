@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 
 import {
+  addRuleSets,
   deleteExit,
   errorMessage,
   getExitYaml,
   saveExitYaml,
 } from '../api';
+import type { RuleCatalogItem } from '../api';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ExitSheet } from '../components/ExitSheet';
 import { asArray, asRecord, asText } from '../lib/workspace';
@@ -42,11 +44,21 @@ export function ExitsPage() {
     }
   };
 
-  const saveExit = async (originalName: string | null, yaml: string) => {
+  const saveExit = async (
+    originalName: string | null,
+    yaml: string,
+    ruleSets?: RuleCatalogItem[],
+    target?: string,
+  ) => {
     await saveExitYaml(originalName, yaml);
+    if (ruleSets?.length && target) {
+      await addRuleSets(ruleSets, target);
+    }
     await load();
     setEditing(null);
-    toast.success('出口已保存');
+    toast.success(
+      ruleSets?.length ? `已创建策略组并导入 ${ruleSets.length} 个规则集` : '出口已保存',
+    );
   };
 
   const confirmDelete = async () => {

@@ -1,14 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Check, Layers, ListPlus, PencilLine, Search, Sparkles } from 'lucide-react';
+import { Check, Layers, ListPlus, PencilLine, Search } from 'lucide-react';
 
 import { errorMessage } from '../api';
 import type { RuleCatalogItem } from '../api';
 import {
   CATALOG_BY_ID,
   RULE_CATALOG,
-  RULE_COMBOS,
   type RuleCatalogEntry,
-  type RuleCombo,
 } from '../data/rule-catalog';
 import { Select } from './Select';
 import { SideSheet } from './SideSheet';
@@ -86,13 +84,12 @@ export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: 
   const targetOptions = Array.from(new Set(['DIRECT', 'REJECT', ...targets]));
   const defaultTarget =
     targetOptions.find((target) => target !== 'DIRECT' && target !== 'REJECT') ?? 'DIRECT';
-  const [tab, setTab] = useState<'combos' | 'catalog' | 'manual' | 'batch'>(
-    initial ? 'manual' : 'combos',
+  const [tab, setTab] = useState<'catalog' | 'manual' | 'batch'>(
+    initial ? 'manual' : 'catalog',
   );
   const [draft, setDraft] = useState<RuleDraft>(() => parseRule(initial));
   const [presetTarget, setPresetTarget] = useState(defaultTarget);
   const [selectedCatalog, setSelectedCatalog] = useState<Set<string>>(new Set());
-  const [activeCombo, setActiveCombo] = useState('');
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
   const [batch, setBatch] = useState('');
@@ -134,15 +131,7 @@ export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: 
     [selectedCatalog],
   );
 
-  const chooseCombo = (combo: RuleCombo) => {
-    setSelectedCatalog(new Set(combo.entries));
-    setActiveCombo(combo.id);
-    if (combo.id === 'ads') setPresetTarget('REJECT');
-    else if (combo.id === 'cn-direct' || combo.id === 'private') setPresetTarget('DIRECT');
-  };
-
   const toggleCatalog = (id: string) => {
-    setActiveCombo('');
     setSelectedCatalog((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
@@ -195,26 +184,10 @@ export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: 
     void submit([buildRule(draft)]);
   };
 
-  const activeComboSelected =
-    Boolean(activeCombo) &&
-    Boolean(
-      RULE_COMBOS.find((combo) => combo.id === activeCombo)?.entries.every((id) =>
-        selectedCatalog.has(id),
-      ),
-    );
-
   return (
     <SideSheet title={initial ? '编辑规则' : '新增规则'} onClose={onClose}>
       {!initial ? (
         <div className="sheet-tabs">
-          <button
-            className={tab === 'combos' ? 'sheet-tab active' : 'sheet-tab'}
-            type="button"
-            onClick={() => setTab('combos')}
-          >
-            <Sparkles size={14} />
-            推荐规则集
-          </button>
           <button
             className={tab === 'catalog' ? 'sheet-tab active' : 'sheet-tab'}
             type="button"
@@ -239,51 +212,6 @@ export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: 
             <ListPlus size={14} />
             批量
           </button>
-        </div>
-      ) : null}
-
-      {tab === 'combos' ? (
-        <div className="sheet-section">
-          <label className="field">
-            <span>目标</span>
-            <Select
-              value={presetTarget}
-              options={targetOptions.map((value) => ({ value, label: value }))}
-              onChange={setPresetTarget}
-              ariaLabel="规则集目标"
-            />
-          </label>
-          <div className="combo-grid">
-            {RULE_COMBOS.map((combo) => {
-              const active = activeCombo === combo.id && activeComboSelected;
-              return (
-                <button
-                  key={combo.id}
-                  type="button"
-                  className={active ? 'combo-card active' : 'combo-card'}
-                  onClick={() => chooseCombo(combo)}
-                >
-                  <span className="combo-category">{combo.category}</span>
-                  <strong>{combo.nameZh}</strong>
-                  <p>{combo.description}</p>
-                  <span className="combo-count">{combo.entryCount} 个规则集</span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="sheet-actions">
-            <span className="sheet-foot-note">已选 {selectedItems.length} 个规则集</span>
-            <button
-              className="btn btn-primary"
-              type="button"
-              onClick={() => void addCatalog()}
-              disabled={busy || !selectedItems.length}
-            >
-              {selectedItems.length
-                ? '添加 ' + selectedItems.length + ' 个规则集'
-                : '添加规则集'}
-            </button>
-          </div>
         </div>
       ) : null}
 

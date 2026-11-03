@@ -138,6 +138,14 @@ export function NodesPage() {
         <div className="card-head">
           <div className="card-title-row">
             <span className="chip chip-muted">{view ? `${view.nodeCount} 个节点` : '—'}</span>
+            {selectMode ? (
+              <>
+                <button className="btn btn-ghost" type="button" onClick={toggleAll}>
+                  {allSelected ? '取消全选' : '全选'}
+                </button>
+                <span className="hint">{selected.size} 项已选</span>
+              </>
+            ) : null}
           </div>
           <div className="inline-actions">
             <button
@@ -167,15 +175,6 @@ export function NodesPage() {
             </button>
           </div>
         </div>
-
-        {selectMode ? (
-          <div className="bulk-bar">
-            <button className="btn btn-ghost" type="button" onClick={toggleAll}>
-              {allSelected ? '取消全选' : '全选'}
-            </button>
-            <span className="hint">{selected.size} 项已选</span>
-          </div>
-        ) : null}
 
         {nodes.length ? (
           <div className="data-list">

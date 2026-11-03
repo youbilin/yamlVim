@@ -2376,3 +2376,71 @@ body,
   }
 }
 
+
+/* === Sidebar control sizing === */
+.sidebar-head {
+  height: 40px;
+  min-height: 40px;
+  padding: 0 8px;
+}
+
+.sidebar-toggle,
+.github-link {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+}
+
+.nav-item {
+  height: 36px;
+  padding: 0 9px;
+}
+
+.sidebar.collapsed .nav-item {
+  height: 36px;
+  padding: 0;
+}
+
+.sidebar.collapsed:hover .nav-item {
+  height: 36px;
+  padding: 0 9px;
+}
+
+/* === Compact catalog search === */
+.catalog-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.catalog-search .input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+}
+
+.catalog-search .btn {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+/* === Combo list in exit sheet === */
+.sheet-subtitle {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.combo-pick-list {
+  max-height: 240px;
+}
+
+.card-head .hint {
+  margin: 0;
+}
+
