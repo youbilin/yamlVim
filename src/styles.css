@@ -2444,3 +2444,26 @@ body,
   margin: 0;
 }
 
+
+/* Keep nav labels stationary on hover */
+.nav-item:hover span {
+  transform: none;
+}
+
+.catalog-search .input {
+  font-size: 12px;
+}
+.catalog-search .input::placeholder {
+  font-size: 12px;
+}
+
+
+.nav-item:hover span {
+  animation: none;
+  transform: none;
+}
+
+.nav-item,
+.sidebar.collapsed:hover .nav-item {
+  gap: 9px;
+}

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Check, Layers, ListPlus, PencilLine, Search } from 'lucide-react';
+import { Check } from 'lucide-react';
 
 import { errorMessage } from '../api';
 import type { RuleCatalogItem } from '../api';
@@ -193,15 +193,13 @@ export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: 
             type="button"
             onClick={() => setTab('catalog')}
           >
-            <Layers size={14} />
-            全部规则集
+            全部
           </button>
           <button
             className={tab === 'manual' ? 'sheet-tab active' : 'sheet-tab'}
             type="button"
             onClick={() => setTab('manual')}
           >
-            <PencilLine size={14} />
             手动
           </button>
           <button
@@ -209,7 +207,6 @@ export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: 
             type="button"
             onClick={() => setTab('batch')}
           >
-            <ListPlus size={14} />
             批量
           </button>
         </div>
@@ -226,7 +223,6 @@ export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: 
               spellCheck={false}
             />
             <button className="btn btn-ghost" type="button">
-              <Search size={14} />
               搜索
             </button>
           </div>

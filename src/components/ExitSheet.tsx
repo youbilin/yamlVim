@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, Users } from 'lucide-react';
+import { Check } from 'lucide-react';
 
 import { errorMessage } from '../api';
 import type { RuleCatalogItem } from '../api';
@@ -141,7 +141,6 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
             type="button"
             onClick={() => setTab('generate')}
           >
-            <Users size={14} />
             从节点生成
           </button>
           <button
