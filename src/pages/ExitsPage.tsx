@@ -8,7 +8,7 @@ import {
   saveExitYaml,
 } from '../api';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { YamlEditorDialog } from '../components/YamlEditorDialog';
+import { ExitSheet } from '../components/ExitSheet';
 import { asArray, asRecord, asText } from '../lib/workspace';
 import { toast } from '../store/toast';
 import { useWorkspaceData } from '../store/workspace';
@@ -17,12 +17,6 @@ interface EditingExit {
   originalName: string | null;
   yaml: string;
 }
-
-const NEW_EXIT = `name: New Group
-type: select
-proxies:
-  - DIRECT
-`;
 
 export function ExitsPage() {
   const view = useWorkspaceData((state) => state.view);
@@ -35,6 +29,9 @@ export function ExitsPage() {
   }, [load]);
 
   const exits = view?.exits ?? [];
+  const nodeNames = (view?.nodes ?? [])
+    .map((node) => asText(asRecord(node).name))
+    .filter((value): value is string => Boolean(value));
 
   const openEdit = async (name: string) => {
     try {
@@ -45,8 +42,8 @@ export function ExitsPage() {
     }
   };
 
-  const saveExit = async (yaml: string) => {
-    await saveExitYaml(editing?.originalName ?? null, yaml);
+  const saveExit = async (originalName: string | null, yaml: string) => {
+    await saveExitYaml(originalName, yaml);
     await load();
     setEditing(null);
     toast.success('出口已保存');
@@ -74,7 +71,7 @@ export function ExitsPage() {
           <button
             className="btn btn-primary"
             type="button"
-            onClick={() => setEditing({ originalName: null, yaml: NEW_EXIT })}
+            onClick={() => setEditing({ originalName: null, yaml: '' })}
           >
             <Plus size={15} />
             新增策略组
@@ -128,9 +125,10 @@ export function ExitsPage() {
       </div>
 
       {editing ? (
-        <YamlEditorDialog
-          title={editing.originalName ? `编辑出口 · ${editing.originalName}` : '新增策略组'}
-          value={editing.yaml}
+        <ExitSheet
+          originalName={editing.originalName}
+          initialYaml={editing.yaml}
+          nodes={nodeNames}
           onSave={saveExit}
           onClose={() => setEditing(null)}
         />

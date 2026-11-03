@@ -999,6 +999,61 @@ fn replace_group_reference(workspace: &mut Workspace, old_name: &str, new_name: 
 }
 
 #[tauri::command]
+fn delete_nodes(names: Vec<String>) -> Result<ConfigStatus, String> {
+    let targets: BTreeSet<String> = names.into_iter().collect();
+    if targets.is_empty() {
+        return Err("没有选择节点".into());
+    }
+    let mut workspace = load_workspace()?;
+    let before = workspace.proxies.len();
+    workspace
+        .proxies
+        .retain(|value| !proxy_name(value).is_some_and(|name| targets.contains(&name)));
+    let removed = before - workspace.proxies.len();
+    if removed == 0 {
+        return Err("没有匹配的节点".into());
+    }
+    workspace.normalize();
+    save_workspace_files(&workspace, Some("nodes-delete"))?;
+    config_status()
+}
+
+#[tauri::command]
+fn set_nodes_disabled(names: Vec<String>, disabled: bool) -> Result<ConfigStatus, String> {
+    let targets: BTreeSet<String> = names.into_iter().collect();
+    if targets.is_empty() {
+        return Err("没有选择节点".into());
+    }
+    let mut workspace = load_workspace()?;
+    let mut changed = 0;
+    for value in &mut workspace.proxies {
+        let Some(name) = proxy_name(value) else {
+            continue;
+        };
+        if !targets.contains(&name) {
+            continue;
+        }
+        let Some(mapping) = value.as_mapping_mut() else {
+            continue;
+        };
+        if disabled {
+            mapping.insert(
+                serde_yaml::Value::String("disabled".into()),
+                serde_yaml::Value::Bool(true),
+            );
+        } else {
+            mapping.remove("disabled");
+        }
+        changed += 1;
+    }
+    if changed == 0 {
+        return Err("没有匹配的节点".into());
+    }
+    save_workspace_files(&workspace, Some("nodes-toggle"))?;
+    config_status()
+}
+
+#[tauri::command]
 fn node_yaml(name: String) -> Result<String, String> {
     let workspace = load_workspace()?;
     let node = workspace
@@ -1491,6 +1546,8 @@ pub fn run() {
             switch_proxy,
             node_yaml,
             update_node_yaml,
+            delete_nodes,
+            set_nodes_disabled,
             delete_node,
             toggle_node,
             exit_yaml,
@@ -1569,6 +1626,19 @@ mod tests {
             create_chain_node("node-c2".into(), "DIRECT".into(), Some("chain-c".into())).unwrap();
         delete_node("chain-c".into()).unwrap();
         let final_status = delete_node("node-c2".into()).unwrap();
+        let batch_node = add_node_yaml(
+            "name: node-d\ntype: ss\nserver: d.example.com\nport: 443\ncipher: aes-128-gcm\npassword: secret\n"
+                .into(),
+        )
+        .unwrap();
+        let disabled_status = set_nodes_disabled(vec!["node-d".into()], true).unwrap();
+        let batch_deleted = delete_nodes(vec!["node-d".into()]).unwrap();
+        let exit_created = save_exit_yaml(
+            None,
+            "name: Test Group\ntype: select\nproxies:\n  - DIRECT\n".into(),
+        )
+        .unwrap();
+        let exit_deleted = delete_exit("Test Group".into()).unwrap();
 
         match previous {
             Some(value) => std::env::set_var("YAMLVIM_DATA_DIR", value),
@@ -1621,6 +1691,11 @@ mod tests {
         assert_eq!(rule_status.rule_count, 1);
         assert_eq!(chain_status.node_count, 2);
         assert_eq!(final_status.node_count, 0);
+        assert_eq!(batch_node.node_count, 1);
+        assert_eq!(disabled_status.node_count, 1);
+        assert_eq!(batch_deleted.node_count, 0);
+        assert_eq!(exit_created.exit_count, 2);
+        assert_eq!(exit_deleted.exit_count, 1);
         let _ = fs::remove_dir_all(root);
     }
 }

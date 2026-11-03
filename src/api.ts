@@ -267,6 +267,17 @@ export async function loadExportAsWorkspace(path: string): Promise<ConfigStatus>
   return invoke<ConfigStatus>('load_export_as_workspace', { path });
 }
 
+export async function deleteNodes(names: string[]): Promise<ConfigStatus> {
+  return invoke<ConfigStatus>('delete_nodes', { names });
+}
+
+export async function setNodesDisabled(
+  names: string[],
+  disabled: boolean,
+): Promise<ConfigStatus> {
+  return invoke<ConfigStatus>('set_nodes_disabled', { names, disabled });
+}
+
 export async function getNodeYaml(name: string): Promise<string> {
   return invoke<string>('node_yaml', { name });
 }

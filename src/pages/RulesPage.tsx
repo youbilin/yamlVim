@@ -3,7 +3,7 @@ import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from 'lucide-react';
 
 import { saveRules } from '../api';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { RuleDialog } from '../components/RuleDialog';
+import { RuleSheet } from '../components/RuleSheet';
 import { asRecord, asText } from '../lib/workspace';
 import { toast } from '../store/toast';
 import { useWorkspaceData } from '../store/workspace';
@@ -35,13 +35,13 @@ export function RulesPage() {
     toast.success('规则已保存');
   };
 
-  const saveRule = async (rule: string) => {
+  const saveRule = async (incoming: string[]) => {
     if (!editing) return;
     const next = [...rules];
     if (editing.index === null) {
-      next.push(rule);
+      next.push(...incoming);
     } else {
-      next[editing.index] = rule;
+      next.splice(editing.index, 1, ...incoming);
     }
     await persist(next);
     setEditing(null);
@@ -154,9 +154,10 @@ export function RulesPage() {
       </div>
 
       {editing ? (
-        <RuleDialog
+        <RuleSheet
           initial={editing.index === null ? null : editing.value}
           targets={targets}
+          ruleSets={ruleSets}
           onSave={saveRule}
           onClose={() => setEditing(null)}
         />
