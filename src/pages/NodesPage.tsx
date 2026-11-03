@@ -3,14 +3,12 @@ import { Plus } from 'lucide-react';
 
 import { AddNodeDialog } from '../components/AddNodeDialog';
 import { asRecord, asText } from '../lib/workspace';
-import { useImportDialog } from '../store/dialogs';
 import { useWorkspaceData } from '../store/workspace';
 
 export function NodesPage() {
   const view = useWorkspaceData((state) => state.view);
   const error = useWorkspaceData((state) => state.error);
   const load = useWorkspaceData((state) => state.load);
-  const showImport = useImportDialog((state) => state.show);
   const [addOpen, setAddOpen] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -32,9 +30,6 @@ export function NodesPage() {
             <button className="btn btn-primary" type="button" onClick={() => setAddOpen(true)}>
               <Plus size={15} />
               新增节点
-            </button>
-            <button className="btn btn-ghost" type="button" onClick={showImport}>
-              导入 YAML
             </button>
           </div>
         </div>
@@ -71,9 +66,6 @@ export function NodesPage() {
             <div className="inline-actions">
               <button className="btn btn-primary" type="button" onClick={() => setAddOpen(true)}>
                 新增节点
-              </button>
-              <button className="btn btn-ghost" type="button" onClick={showImport}>
-                导入 YAML
               </button>
             </div>
           </div>

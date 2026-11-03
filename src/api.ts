@@ -6,9 +6,7 @@ import type {
   ConfigStatus,
   ConfigValidation,
   CoreProbe,
-  DnsConfigPreview,
   DnsInput,
-  DnsPreview,
   WorkspaceView,
 } from './types';
 
@@ -22,7 +20,7 @@ export function isTauriRuntime(): boolean {
   );
 }
 
-function errorMessage(error: unknown): string {
+export function formatError(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
   return String(error);
@@ -70,96 +68,28 @@ export async function probeCore(path: string): Promise<CoreProbe> {
   return invoke<CoreProbe>('probe_core', { path });
 }
 
-export async function compileDnsPreview(input: DnsInput): Promise<DnsPreview> {
+export async function getWorkspaceView(): Promise<WorkspaceView> {
   if (!isTauriRuntime()) {
-    await new Promise((resolve) => window.setTimeout(resolve, 180));
-    return mockPreview(input);
-  }
-  return invoke<DnsPreview>('compile_dns_preview', { input });
-}
-
-function stringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === 'string');
-}
-
-function mockPreview(input: DnsInput): DnsPreview {
-  if (!input.enabled) {
     return {
-      enabled: false,
-      yaml: '# DNS override is disabled\n# The base dns block remains in effect.\n',
-      warnings: [],
+      settings: { 'mixed-port': 7890, mode: 'rule', 'log-level': 'info' },
+      nodes: [
+        { name: 'Demo Node A', type: 'ss', server: 'a.example.com', port: 443 },
+        { name: 'Demo Node B', type: 'trojan', server: 'b.example.com', port: 443 },
+      ],
+      exits: [
+        { name: 'Auto', type: 'url-test', proxies: ['Demo Node A', 'Demo Node B'] },
+      ],
+      rules: ['DOMAIN-SUFFIX,openai.com,Auto', 'MATCH,DIRECT'],
+      ruleProviders: {},
+      proxyProviders: {},
+      hosts: {},
+      nodeCount: 2,
+      exitCount: 1,
+      ruleCount: 2,
     };
   }
-
-  const lines = [
-    '# Browser preview — the Rust DNS compiler is not attached',
-    'dns:',
-    `  enable: ${Boolean(input.settings.enable)}`,
-  ];
-
-  for (const key of ['listen', 'enhanced-mode', 'fake-ip-range']) {
-    const value = input.settings[key];
-    if (typeof value === 'string' && value) lines.push(`  ${key}: ${value}`);
-  }
-
-  const nameservers = stringList(input.settings.nameserver);
-  if (nameservers.length) {
-    lines.push('  nameserver:');
-    for (const server of nameservers) lines.push(`    - ${server}`);
-  }
-
-  const filters = stringList(input.settings['fake-ip-filter']);
-  if (filters.length) {
-    lines.push('  fake-ip-filter:');
-    for (const filter of filters) lines.push(`    - ${filter}`);
-  }
-
-  const policy: string[] = [];
-  const hosts: string[] = [];
-  for (const rule of input.rules) {
-    const key =
-      rule.match.type === 'suffix'
-        ? `+.${rule.match.value}`
-        : rule.match.type === 'geosite'
-          ? `geosite:${rule.match.value}`
-          : rule.match.type === 'rule-set'
-            ? `rule-set:${rule.match.value}`
-            : rule.match.value;
-    const type = typeof rule.action.type === 'string' ? rule.action.type : '';
-    if (type === 'nameserver') {
-      const servers = stringList(rule.action.servers);
-      policy.push(`    '${key}': ${servers[0] ?? 'system'}`);
-    }
-    if (type === 'block') policy.push(`    '${key}': rcode://refused`);
-    if (type === 'fixed-ip') {
-      const ips = stringList(rule.action.ips);
-      hosts.push(`  ${rule.match.value}: ${ips[0] ?? '127.0.0.1'}`);
-    }
-  }
-
-  if (policy.length) {
-    lines.push('  nameserver-policy:');
-    lines.push(...policy);
-  }
-  if (hosts.length) {
-    lines.push('hosts:');
-    lines.push(...hosts);
-  }
-
-  return {
-    enabled: input.enabled,
-    yaml: lines.join('\n') + '\n',
-    warnings: [
-      {
-        code: 'browser-preview',
-        message:
-          'Browser preview only. Base config merging and the Rust compiler run in the Tauri app.',
-      },
-    ],
-  };
+  return invoke<WorkspaceView>('workspace_view');
 }
-
 
 export async function getConfigStatus(): Promise<ConfigStatus> {
   if (!isTauriRuntime()) {
@@ -179,23 +109,39 @@ export async function getConfigStatus(): Promise<ConfigStatus> {
   return invoke<ConfigStatus>('config_status');
 }
 
-export async function importConfig(source: string): Promise<ConfigStatus> {
+export async function importSource(input: string): Promise<ConfigStatus> {
+  if (!isTauriRuntime()) {
+    throw new Error('Browser mode cannot read local files or network. Use the Tauri app.');
+  }
+  return invoke<ConfigStatus>('import_source', { input });
+}
+
+export async function importNodeLinks(text: string): Promise<ConfigStatus> {
   if (!isTauriRuntime()) {
     throw new Error('Browser mode cannot read local files. Use the Tauri app.');
   }
-  return invoke<ConfigStatus>('import_config', { source });
+  return invoke<ConfigStatus>('import_node_links', { text });
 }
 
-export async function previewDnsConfig(input: DnsInput): Promise<DnsConfigPreview> {
+export async function getDnsYaml(): Promise<string> {
+  if (!isTauriRuntime()) return 'dns:\n  enable: true\n';
+  return invoke<string>('workspace_dns_yaml');
+}
+
+export async function applyDnsYaml(yaml: string): Promise<ConfigApplyResult> {
   if (!isTauriRuntime()) {
-    const preview = mockPreview(input);
     return {
-      enabled: preview.enabled,
-      yaml: '# Browser preview — base config merging is only available in Tauri\n' + preview.yaml,
-      warnings: preview.warnings,
+      ok: true,
+      yaml: 'dns: {}\n',
+      warnings: [],
+      validation: {
+        ok: true,
+        timedOut: false,
+        output: 'Browser preview: nothing was written to disk.',
+      },
     };
   }
-  return invoke<DnsConfigPreview>('preview_dns_config', { input });
+  return invoke<ConfigApplyResult>('apply_dns_yaml', { yaml });
 }
 
 export async function validateConfig(yaml: string): Promise<ConfigValidation> {
@@ -211,11 +157,10 @@ export async function validateConfig(yaml: string): Promise<ConfigValidation> {
 
 export async function applyDnsConfig(input: DnsInput): Promise<ConfigApplyResult> {
   if (!isTauriRuntime()) {
-    const preview = mockPreview(input);
     return {
       ok: true,
-      yaml: preview.yaml,
-      warnings: preview.warnings,
+      yaml: 'dns: {}\n',
+      warnings: [],
       validation: {
         ok: true,
         timedOut: false,
@@ -225,8 +170,6 @@ export async function applyDnsConfig(input: DnsInput): Promise<ConfigApplyResult
   }
   return invoke<ConfigApplyResult>('apply_dns_config', { input });
 }
-
-
 
 export async function addNodeYaml(yaml: string): Promise<ConfigStatus> {
   if (!isTauriRuntime()) {
@@ -249,42 +192,4 @@ export async function exportConfig(): Promise<string> {
   return invoke<string>('export_config');
 }
 
-
-const BROWSER_WORKSPACE: WorkspaceView = {
-  settings: { 'mixed-port': 7890, mode: 'rule', 'log-level': 'info' },
-  nodes: [
-    {
-      name: 'Demo Node A',
-      type: 'ss',
-      server: 'a.example.com',
-      port: 443,
-    },
-    {
-      name: 'Demo Node B',
-      type: 'trojan',
-      server: 'b.example.com',
-      port: 443,
-    },
-  ],
-  exits: [
-    {
-      name: 'Auto',
-      type: 'url-test',
-      proxies: ['Demo Node A', 'Demo Node B'],
-    },
-  ],
-  rules: ['DOMAIN-SUFFIX,openai.com,Auto', 'MATCH,DIRECT'],
-  ruleProviders: {},
-  proxyProviders: {},
-  hosts: {},
-  nodeCount: 2,
-  exitCount: 1,
-  ruleCount: 2,
-};
-
-export async function getWorkspaceView(): Promise<WorkspaceView> {
-  if (!isTauriRuntime()) return BROWSER_WORKSPACE;
-  return invoke<WorkspaceView>('workspace_view');
-}
-
-export { errorMessage };
+export { formatError as errorMessage };

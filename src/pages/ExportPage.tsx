@@ -9,7 +9,6 @@ import {
   saveWorkspaceYaml,
   validateConfig,
 } from '../api';
-import { useImportDialog } from '../store/dialogs';
 import { useWorkspaceData } from '../store/workspace';
 import type { ConfigStatus, ConfigValidation } from '../types';
 
@@ -111,13 +110,6 @@ export function ExportPage() {
       <section className="page">
         <div className="empty">
           <strong>还没有 workspace</strong>
-          <button
-            className="btn btn-primary"
-            type="button"
-            onClick={() => useImportDialog.getState().show()}
-          >
-            导入 mihomo YAML
-          </button>
         </div>
       </section>
     );

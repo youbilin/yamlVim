@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { FileUp } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-import { isTauriRuntime, errorMessage, importConfig } from '../api';
+import { errorMessage, importSource, isTauriRuntime } from '../api';
 import { Dialog } from '../components/Dialog';
 import { useImportDialog } from '../store/dialogs';
 import { useWorkspaceData } from '../store/workspace';
@@ -11,7 +10,7 @@ export function ImportDialog() {
   const open = useImportDialog((state) => state.open);
   const hide = useImportDialog((state) => state.hide);
   const navigate = useNavigate();
-  const [source, setSource] = useState('');
+  const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -32,7 +31,7 @@ export function ImportDialog() {
     setError('');
     setMessage('');
     try {
-      const next = await importConfig(source.trim());
+      const next = await importSource(input.trim());
       await useWorkspaceData.getState().load();
       setMessage(
         `已导入 workspace：${next.nodeCount} 个节点 / ${next.exitCount} 个出口 / ${next.ruleCount} 条规则${
@@ -47,22 +46,23 @@ export function ImportDialog() {
   };
 
   return (
-    <Dialog title="导入 mihomo YAML" onClose={hide}>
+    <Dialog title="导入" onClose={hide}>
       <form onSubmit={handleImport}>
         <div className="dialog-body">
           <label className="field">
-            <span>源文件路径</span>
-            <input
-              className="input mono"
-              value={source}
-              onChange={(event) => setSource(event.target.value)}
-              placeholder="D:\path\to\config.yaml"
+            <span>导入内容</span>
+            <textarea
+              className="textarea mono node-editor"
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder={'D:\\path\\to\\config.yaml\nhttps://example.com/subscribe\nss://… 或 vmess://…\n或直接粘贴 mihomo YAML'}
+              rows={8}
               spellCheck={false}
               autoFocus
             />
           </label>
           {browser ? (
-            <p className="notice notice-info">浏览器模式不能读取本地文件，请使用桌面版。</p>
+            <p className="notice notice-info">浏览器模式不能读取本地文件或网络，请使用桌面版。</p>
           ) : null}
           {message ? <p className="notice notice-ok">{message}</p> : null}
           {error ? <p className="notice notice-warn">{error}</p> : null}
@@ -80,9 +80,12 @@ export function ImportDialog() {
               查看节点
             </button>
           ) : (
-            <button className="btn btn-primary" type="submit" disabled={busy || browser || !source.trim()}>
-              <FileUp size={15} />
-              {busy ? '导入中…' : '导入到 workspace'}
+            <button
+              className="btn btn-primary"
+              type="submit"
+              disabled={busy || browser || !input.trim()}
+            >
+              {busy ? '导入中…' : '导入'}
             </button>
           )}
           <button className="btn btn-ghost" type="button" onClick={hide}>

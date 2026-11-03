@@ -1,14 +1,12 @@
 import { useEffect } from 'react';
 
 import { asArray, asRecord, asText } from '../lib/workspace';
-import { useImportDialog } from '../store/dialogs';
 import { useWorkspaceData } from '../store/workspace';
 
 export function ExitsPage() {
   const view = useWorkspaceData((state) => state.view);
   const error = useWorkspaceData((state) => state.error);
   const load = useWorkspaceData((state) => state.load);
-  const showImport = useImportDialog((state) => state.show);
 
   useEffect(() => {
     void load();
@@ -24,9 +22,6 @@ export function ExitsPage() {
             <h2 className="card-title">出口</h2>
             <span className="chip chip-muted">{view ? `${view.exitCount}` : '—'}</span>
           </div>
-          <button className="btn btn-ghost" type="button" onClick={showImport}>
-            导入 YAML
-          </button>
         </div>
 
         {error ? <p className="notice notice-info">{error}</p> : null}
@@ -55,9 +50,6 @@ export function ExitsPage() {
         ) : (
           <div className="empty">
             <strong>还没有出口</strong>
-            <button className="btn btn-primary" type="button" onClick={showImport}>
-              导入 YAML
-            </button>
           </div>
         )}
       </div>

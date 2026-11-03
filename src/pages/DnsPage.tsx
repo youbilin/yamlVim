@@ -1,22 +1,20 @@
 import { useEffect, useState } from 'react';
-import { Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 
 import {
   applyDnsConfig,
-  compileDnsPreview,
+  applyDnsYaml,
   errorMessage,
+  getDnsYaml,
   isTauriRuntime,
-  previewDnsConfig,
 } from '../api';
 import { toDnsInput } from '../lib/dns';
 import { useWorkspaceData } from '../store/workspace';
 import type {
   ActionType,
   ConfigApplyResult,
-  DnsConfigPreview,
   DnsDraft,
   DnsDraftSettings,
-  DnsPreview,
   DnsRuleDraft,
   MatchType,
 } from '../types';
@@ -93,41 +91,45 @@ function needsValue(action: ActionType): boolean {
 
 export function DnsPage() {
   const [draft, setDraft] = useState<DnsDraft>(DEFAULT_DRAFT);
-  const [preview, setPreview] = useState<DnsPreview | null>(null);
-  const [fullPreview, setFullPreview] = useState<DnsConfigPreview | null>(null);
   const [applyResult, setApplyResult] = useState<ConfigApplyResult | null>(null);
-  const [busy, setBusy] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [error, setError] = useState('');
   const [applyError, setApplyError] = useState('');
+  const [dnsYaml, setDnsYaml] = useState('');
+  const [rawOpen, setRawOpen] = useState(false);
+  const [rawBusy, setRawBusy] = useState(false);
+  const [rawError, setRawError] = useState('');
+  const [rawMessage, setRawMessage] = useState('');
   const browser = !isTauriRuntime();
 
-  const runPreview = async (next: DnsDraft = draft) => {
-    setBusy(true);
-    setError('');
-    setFullPreview(null);
-    setApplyResult(null);
-    setApplyError('');
+  const loadDnsYaml = async () => {
     try {
-      setPreview(await compileDnsPreview(toDnsInput(next)));
+      setDnsYaml(await getDnsYaml());
     } catch (reason) {
-      setError(errorMessage(reason));
-    } finally {
-      setBusy(false);
+      setRawError(errorMessage(reason));
     }
   };
 
-  const runFullPreview = async () => {
-    setBusy(true);
-    setError('');
-    setApplyResult(null);
-    setApplyError('');
+  useEffect(() => {
+    void loadDnsYaml();
+  }, []);
+
+  const handleApplyYaml = async () => {
+    setRawBusy(true);
+    setRawError('');
+    setRawMessage('');
     try {
-      setFullPreview(await previewDnsConfig(toDnsInput(draft)));
+      const result = await applyDnsYaml(dnsYaml);
+      if (result.ok) {
+        setRawMessage('DNS YAML 已应用到 workspace');
+        await useWorkspaceData.getState().load();
+        await loadDnsYaml();
+      } else {
+        setRawError(`mihomo -t 校验未通过：${result.validation.output}`);
+      }
     } catch (reason) {
-      setError(errorMessage(reason));
+      setRawError(errorMessage(reason));
     } finally {
-      setBusy(false);
+      setRawBusy(false);
     }
   };
 
@@ -135,17 +137,12 @@ export function DnsPage() {
     setApplying(true);
     setApplyError('');
     setApplyResult(null);
-    setFullPreview(null);
     try {
       const result = await applyDnsConfig(toDnsInput(draft));
       setApplyResult(result);
       if (result.ok) {
-        setFullPreview({
-          enabled: true,
-          yaml: result.yaml,
-          warnings: result.warnings,
-        });
-        void useWorkspaceData.getState().load();
+        await useWorkspaceData.getState().load();
+        await loadDnsYaml();
       } else {
         setApplyError('mihomo -t 校验未通过，配置未写入。');
       }
@@ -155,16 +152,6 @@ export function DnsPage() {
       setApplying(false);
     }
   };
-
-  const activeYaml =
-    fullPreview?.yaml ?? preview?.yaml ?? '点击“编译预览”生成 YAML';
-  const activeWarnings = fullPreview?.warnings ?? preview?.warnings ?? [];
-
-  useEffect(() => {
-    void runPreview(DEFAULT_DRAFT);
-    // Only compile the initial draft once; later changes use the button.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const updateSettings = (patch: Partial<DnsDraftSettings>) => {
     setDraft((current) => ({
@@ -206,10 +193,58 @@ export function DnsPage() {
 
   return (
     <section className="page">
-      <div className="dns-layout">
-        <div className="stack">
-          <div className="card">
-            <label className="switch-row">
+      <div className="card">
+        <div className="card-head">
+          <div className="card-title-row">
+            <h2 className="card-title">DNS YAML</h2>
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={() => setRawOpen((current) => !current)}
+            >
+              {rawOpen ? '收起' : '展开编辑'}
+            </button>
+          </div>
+        </div>
+        {rawOpen ? (
+          <>
+            <label className="field">
+              <span>直接编辑 dns / hosts</span>
+              <textarea
+                className="textarea mono export-editor"
+                value={dnsYaml}
+                onChange={(event) => setDnsYaml(event.target.value)}
+                rows={14}
+                spellCheck={false}
+              />
+            </label>
+            {rawMessage ? <p className="notice notice-ok">{rawMessage}</p> : null}
+            {rawError ? <p className="notice notice-warn">{rawError}</p> : null}
+            <div className="inline-actions">
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => void loadDnsYaml()}
+                disabled={rawBusy}
+              >
+                载入当前
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={() => void handleApplyYaml()}
+                disabled={rawBusy || !dnsYaml.trim() || browser}
+              >
+                应用 YAML
+              </button>
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      <div className="stack">
+        <div className="card">
+          <label className="switch-row">
               <input
                 type="checkbox"
                 checked={draft.enabled}
@@ -441,78 +476,42 @@ export function DnsPage() {
           </div>
         </div>
 
-        <aside className="stack">
-          <div className="card preview-card">
-            <div className="card-head">
-              <div>
-                <h2 className="card-title">YAML 预览</h2>
-              </div>
-              <div className="preview-actions">
-                <button
-                  className="btn btn-ghost"
-                  type="button"
-                  onClick={() => void runPreview()}
-                  disabled={busy || applying}
-                >
-                  <RefreshCw size={15} className={busy ? 'spin' : undefined} />
-                  片段
-                </button>
-                <button
-                  className="btn btn-ghost"
-                  type="button"
-                  onClick={() => void runFullPreview()}
-                  disabled={busy || applying}
-                >
-                  完整配置
-                </button>
-                <button
-                  className="btn btn-primary"
-                  type="button"
-                  onClick={() => void handleApply()}
-                  disabled={busy || applying}
-                >
-                  {applying ? '应用中…' : '应用'}
-                </button>
-              </div>
+        <div className="card">
+          <div className="card-head">
+            <div className="card-title-row">
+              <h2 className="card-title">应用</h2>
+              <span className="chip chip-muted">{applying ? 'applying' : 'safe mode'}</span>
             </div>
-
-            {error ? <p className="notice notice-warn">{error}</p> : null}
-            {applyError ? <p className="notice notice-warn">{applyError}</p> : null}
-            {applyResult ? (
-              <div className={applyResult.ok ? 'notice notice-ok' : 'notice notice-warn'}>
-                <strong>
-                  {applyResult.ok
-                    ? browser
-                      ? '浏览器预览：未写入磁盘'
-                      : '已更新 workspace 并生成 config.yaml'
-                    : '校验未通过，未写入'}
-                </strong>
-                {applyResult.snapshot ? (
-                  <span className="mono break">历史快照：{applyResult.snapshot}</span>
-                ) : null}
-                <details>
-                  <summary>mihomo -t 输出</summary>
-                  <pre className="code-block output-block">{applyResult.validation.output}</pre>
-                </details>
-              </div>
-            ) : null}
-            {(fullPreview && !fullPreview.enabled) || (preview && !preview.enabled) ? (
-              <p className="notice notice-info">覆写已关闭：基础 DNS 将保持不变。</p>
-            ) : null}
-            {activeWarnings.length ? (
-              <ul className="warnings">
-                {activeWarnings.map((warning) => (
-                  <li key={`${warning.code}-${warning.message}`}>
-                    <strong>{warning.code}</strong>
-                    <span>{warning.message}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-
-            <pre className="code-block preview-code">{activeYaml}</pre>
           </div>
-        </aside>
+          <div className="inline-actions">
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={() => void handleApply()}
+              disabled={applying}
+            >
+              {applying ? '应用中…' : '应用 DNS 覆写'}
+            </button>
+          </div>
+          {applyError ? <p className="notice notice-warn">{applyError}</p> : null}
+          {applyResult ? (
+            <div className={applyResult.ok ? 'notice notice-ok' : 'notice notice-warn'}>
+              <strong>
+                {applyResult.ok
+                  ? browser
+                    ? '浏览器预览：未写入磁盘'
+                    : '已更新 workspace 并生成 config.yaml'
+                  : '校验未通过，未写入'}
+              </strong>
+              {applyResult.snapshot ? (
+                <span className="mono break">历史快照：{applyResult.snapshot}</span>
+              ) : null}
+              <details>
+                <summary>mihomo -t 输出</summary>
+                <pre className="code-block output-block">{applyResult.validation.output}</pre>
+              </details>
+            </div>
+          ) : null}
       </div>
     </section>
   );

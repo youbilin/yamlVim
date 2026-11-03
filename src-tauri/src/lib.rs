@@ -3,11 +3,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use base64::alphabet;
+use base64::engine::{general_purpose::GeneralPurpose, DecodePaddingMode, GeneralPurposeConfig};
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
+use serde_yaml::Mapping;
 
 use yamlvim_core::{
-    compile_dns, provider_paths, set_provider_path, DnsInput, DnsWarning, ProviderPathEntry,
-    Workspace, WorkspaceView,
+    compile_dns, parse_share_link, provider_paths, set_provider_path, share_node_to_proxy,
+    DnsInput, DnsWarning, ProviderPathEntry, Workspace, WorkspaceView,
 };
 use yamlvim_mihomo::{
     probe_core as probe_core_binary, validate_config as validate_config_binary, ConfigValidation,
@@ -192,6 +196,144 @@ fn history_count() -> Result<usize, String> {
         }
     }
     Ok(count)
+}
+
+fn is_share_link(token: &str) -> bool {
+    for scheme in [
+        "ss://",
+        "ssr://",
+        "vmess://",
+        "vless://",
+        "trojan://",
+        "hysteria2://",
+        "hy2://",
+        "tuic://",
+        "socks5://",
+    ] {
+        if token.starts_with(scheme) {
+            return true;
+        }
+    }
+    false
+}
+
+fn contains_share_link(text: &str) -> bool {
+    text.split_whitespace().any(is_share_link)
+}
+
+fn unique_node_name(base: &str, names: &mut std::collections::BTreeSet<String>) -> String {
+    let base = if base.trim().is_empty() {
+        "node"
+    } else {
+        base.trim()
+    };
+    if names.insert(base.to_string()) {
+        return base.to_string();
+    }
+    let mut index = 2;
+    loop {
+        let candidate = format!("{base} {index}");
+        if names.insert(candidate.clone()) {
+            return candidate;
+        }
+        index += 1;
+    }
+}
+
+fn looks_like_config(text: &str) -> bool {
+    let Ok(value) = serde_yaml::from_str::<serde_yaml::Value>(text) else {
+        return false;
+    };
+    let Some(mapping) = value.as_mapping() else {
+        return false;
+    };
+    [
+        "proxies",
+        "proxy-groups",
+        "rules",
+        "mixed-port",
+        "port",
+        "dns",
+    ]
+    .iter()
+    .any(|key| mapping.contains_key(*key))
+}
+
+fn single_node_yaml(text: &str) -> bool {
+    let Ok(value) = serde_yaml::from_str::<serde_yaml::Value>(text) else {
+        return false;
+    };
+    let Some(mapping) = value.as_mapping() else {
+        return false;
+    };
+    mapping.contains_key("name") && mapping.contains_key("type")
+}
+
+fn decode_base64(text: &str) -> Option<String> {
+    let compact: String = text
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
+    for alphabet in [alphabet::STANDARD, alphabet::URL_SAFE] {
+        let engine = GeneralPurpose::new(
+            &alphabet,
+            GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+        );
+        if let Ok(bytes) = engine.decode(compact.as_bytes()) {
+            if let Ok(text) = String::from_utf8(bytes) {
+                return Some(text);
+            }
+        }
+    }
+    None
+}
+
+fn fetch_text(url: &str) -> Result<String, String> {
+    let response = ureq::get(url)
+        .set("User-Agent", "YamlVim/0.1")
+        .timeout(Duration::from_secs(30))
+        .call()
+        .map_err(|error| format!("订阅下载失败：{error}"))?;
+    response
+        .into_string()
+        .map_err(|error| format!("订阅内容读取失败：{error}"))
+}
+
+fn add_nodes_from_links(text: &str) -> Result<ConfigStatus, String> {
+    let links: Vec<&str> = text
+        .split_whitespace()
+        .filter(|token| is_share_link(token))
+        .collect();
+    if links.is_empty() {
+        return Err("没有识别到节点链接".into());
+    }
+
+    let previous = load_workspace_opt()?;
+    let mut workspace = previous.clone().unwrap_or_default();
+    let mut names: BTreeSet<String> = workspace.proxies.iter().filter_map(proxy_name).collect();
+    for link in &links {
+        let node = parse_share_link(link)
+            .map_err(|error| format!("节点链接解析失败：{}", error.message))?;
+        let mut proxy = share_node_to_proxy(&node);
+        let raw_name = proxy
+            .get("name")
+            .and_then(|value| value.as_str())
+            .unwrap_or("node")
+            .to_string();
+        let name = unique_node_name(&raw_name, &mut names);
+        proxy.insert("name".into(), serde_json::Value::String(name.clone()));
+        let proxy_value = serde_yaml::to_value(serde_json::Value::Object(proxy))
+            .map_err(|error| error.to_string())?;
+        workspace.proxies.push(proxy_value);
+    }
+    workspace.normalize();
+
+    if let Some(previous) = previous {
+        let previous_yaml = previous.to_yaml(false).map_err(|error| error.to_string())?;
+        history_snapshot("before-add-links", &previous_yaml)?;
+    }
+    save_workspace_files(&workspace, Some("imported-links"))?;
+    config_status()
 }
 
 fn proxy_name(value: &serde_yaml::Value) -> Option<String> {
@@ -496,16 +638,112 @@ fn config_status() -> Result<ConfigStatus, String> {
 fn workspace_view() -> Result<WorkspaceView, String> {
     Ok(load_workspace()?.view())
 }
+#[tauri::command]
+fn workspace_dns_yaml() -> Result<String, String> {
+    let workspace = load_workspace()?;
+    let mut root = Mapping::new();
+    if let Some(dns) = &workspace.dns {
+        root.insert(serde_yaml::Value::String("dns".into()), dns.clone());
+    }
+    if !workspace.hosts.is_empty() {
+        root.insert(
+            serde_yaml::Value::String("hosts".into()),
+            serde_yaml::Value::Mapping(workspace.hosts.clone()),
+        );
+    }
+    serde_yaml::to_string(&serde_yaml::Value::Mapping(root)).map_err(|error| error.to_string())
+}
 
 #[tauri::command]
-fn import_config(source: String) -> Result<ConfigStatus, String> {
-    let source_path = PathBuf::from(&source);
-    let text = read_text(&source_path)?;
-    let mut workspace = Workspace::from_yaml(&text).map_err(|error| error.to_string())?;
+async fn apply_dns_yaml(yaml: String) -> Result<ConfigApplyResult, String> {
+    let settings = load_settings()?;
+    let core = resolve_core_path(Some(&settings.core_path))?;
+    let data = app_data_dir()?;
+    let workspace = load_workspace()?;
+
+    let parsed: serde_yaml::Value =
+        serde_yaml::from_str(&yaml).map_err(|error| error.to_string())?;
+    let Some(mapping) = parsed.as_mapping() else {
+        return Err("DNS YAML 必须是一个 mapping".into());
+    };
+    if mapping.is_empty() {
+        return Err("DNS YAML 为空".into());
+    }
+
+    let dns = match mapping.get("dns") {
+        Some(serde_yaml::Value::Null) | None => {
+            if mapping.contains_key("hosts") {
+                None
+            } else {
+                Some(serde_yaml::Value::Mapping(mapping.clone()))
+            }
+        }
+        Some(value) => Some(value.clone()),
+    };
+    let hosts = mapping
+        .get("hosts")
+        .and_then(|value| value.as_mapping())
+        .cloned();
+
+    let mut candidate = workspace.clone();
+    if let Some(dns) = dns {
+        candidate.dns = Some(dns);
+    }
+    if let Some(hosts) = hosts {
+        candidate.hosts = hosts;
+    }
+    candidate.normalize();
+    let candidate_yaml = candidate
+        .to_yaml(false)
+        .map_err(|error| error.to_string())?;
+    let core_dir = data.join("core");
+
+    let validation = tauri::async_runtime::spawn_blocking({
+        let core = core.clone();
+        let candidate_yaml = candidate_yaml.clone();
+        move || {
+            validate_config_binary(
+                &SystemRunner,
+                Path::new(&core),
+                &candidate_yaml,
+                &core_dir,
+                Duration::from_secs(10),
+            )
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+
+    if !validation.ok {
+        return Ok(ConfigApplyResult {
+            ok: false,
+            yaml: candidate_yaml,
+            warnings: Vec::new(),
+            validation,
+            snapshot: None,
+        });
+    }
+
+    let previous_yaml = workspace
+        .to_yaml(false)
+        .map_err(|error| error.to_string())?;
+    let snapshot = history_snapshot("before-dns-yaml", &previous_yaml)?;
+    save_workspace_files(&candidate, Some("dns-yaml"))?;
+
+    Ok(ConfigApplyResult {
+        ok: true,
+        yaml: candidate_yaml,
+        warnings: Vec::new(),
+        validation,
+        snapshot: Some(snapshot.display().to_string()),
+    })
+}
+
+fn import_workspace_text(text: &str, source_dir: &Path) -> Result<ConfigStatus, String> {
+    let mut workspace = Workspace::from_yaml(text).map_err(|error| error.to_string())?;
     let data = app_data_dir()?;
     fs::create_dir_all(&data)
         .map_err(|error| format!("failed to create {}: {error}", data.display()))?;
-    let source_dir = source_path.parent().unwrap_or_else(|| Path::new("."));
 
     copy_workspace_providers(&mut workspace, source_dir, &data)?;
     copy_geodata(source_dir, &data)?;
@@ -515,9 +753,79 @@ fn import_config(source: String) -> Result<ConfigStatus, String> {
         let previous_yaml = previous.to_yaml(false).map_err(|error| error.to_string())?;
         history_snapshot("before-import", &previous_yaml)?;
     }
-    history_snapshot("import-source", &text)?;
+    history_snapshot("import-source", text)?;
     save_workspace_files(&workspace, Some("imported"))?;
     config_status()
+}
+
+#[tauri::command]
+fn import_config(source: String) -> Result<ConfigStatus, String> {
+    let source_path = PathBuf::from(&source);
+    let text = read_text(&source_path)?;
+    let source_dir = source_path.parent().unwrap_or_else(|| Path::new("."));
+    import_workspace_text(&text, source_dir)
+}
+
+#[tauri::command]
+fn import_config_text(text: String) -> Result<ConfigStatus, String> {
+    let data = app_data_dir()?;
+    import_workspace_text(&text, &data)
+}
+
+#[tauri::command]
+fn import_node_links(text: String) -> Result<ConfigStatus, String> {
+    add_nodes_from_links(&text)
+}
+
+#[tauri::command]
+fn import_source(input: String) -> Result<ConfigStatus, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("请输入配置文件路径、订阅链接、节点链接或 YAML".into());
+    }
+    let data = app_data_dir()?;
+
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        let body = fetch_text(trimmed)?;
+        return import_text_or_links(&body, &data, true);
+    }
+
+    let path = Path::new(trimmed);
+    if path.is_file() {
+        let body = read_text(path)?;
+        let source_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        return import_text_or_links(&body, source_dir, true);
+    }
+
+    import_text_or_links(trimmed, &data, true)
+}
+
+fn import_text_or_links(
+    text: &str,
+    source_dir: &Path,
+    allow_base64: bool,
+) -> Result<ConfigStatus, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("内容为空".into());
+    }
+    if looks_like_config(trimmed) {
+        return import_workspace_text(trimmed, source_dir);
+    }
+    if contains_share_link(trimmed) {
+        return add_nodes_from_links(trimmed);
+    }
+    if single_node_yaml(trimmed) {
+        return add_node_yaml(trimmed.to_string());
+    }
+    if allow_base64 {
+        if let Some(decoded) = decode_base64(trimmed) {
+            if decoded.trim() != trimmed {
+                return import_text_or_links(&decoded, source_dir, false);
+            }
+        }
+    }
+    Err("无法识别输入：需要 mihomo 配置 YAML、订阅链接、节点分享链接或文件路径".into())
 }
 
 #[tauri::command]
@@ -738,13 +1046,18 @@ pub fn run() {
             compile_dns_preview,
             config_status,
             workspace_view,
+            workspace_dns_yaml,
+            apply_dns_yaml,
             import_config,
             preview_dns_config,
             validate_config,
             apply_dns_config,
             save_workspace_yaml,
             add_node_yaml,
-            export_config
+            export_config,
+            import_source,
+            import_config_text,
+            import_node_links
         ])
         .run(tauri::generate_context!())
         .expect("error while running YamlVim");

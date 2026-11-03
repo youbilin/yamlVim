@@ -127,10 +127,7 @@ function Shell() {
 
       <main className="main">
         <header className="topbar">
-          <div className="topbar-title">
-            <span className="eyebrow">YAMLVIM</span>
-            <strong>{currentTitle(location.pathname)}</strong>
-          </div>
+          <strong className="topbar-title">{currentTitle(location.pathname)}</strong>
           <div className="topbar-meta">
             <button className="btn btn-ghost" type="button" onClick={showImport}>
               <FileUp size={15} />
