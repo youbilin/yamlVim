@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Search, Trash2 } from 'lucide-react';
 
 import {
   applyDnsConfig,
   applyDnsYaml,
+  controllerDnsQuery,
+  controllerFlushDns,
   errorMessage,
   getDnsYaml,
   isTauriRuntime,
 } from '../api';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Select } from '../components/Select';
 import { toDnsInput } from '../lib/dns';
 import { useWorkspaceData } from '../store/workspace';
@@ -100,6 +103,13 @@ export function DnsPage() {
   const [rawBusy, setRawBusy] = useState(false);
   const [rawError, setRawError] = useState('');
   const [rawMessage, setRawMessage] = useState('');
+  const [queryName, setQueryName] = useState('');
+  const [queryType, setQueryType] = useState('A');
+  const [queryResult, setQueryResult] = useState('');
+  const [queryError, setQueryError] = useState('');
+  const [queryBusy, setQueryBusy] = useState(false);
+  const [flushMessage, setFlushMessage] = useState('');
+  const [flushOpen, setFlushOpen] = useState(false);
   const browser = !isTauriRuntime();
 
   const loadDnsYaml = async () => {
@@ -131,6 +141,34 @@ export function DnsPage() {
       setRawError(errorMessage(reason));
     } finally {
       setRawBusy(false);
+    }
+  };
+
+  const runQuery = async () => {
+    setQueryBusy(true);
+    setQueryError('');
+    setQueryResult('');
+    try {
+      const raw = await controllerDnsQuery(queryName.trim(), queryType);
+      try {
+        setQueryResult(JSON.stringify(JSON.parse(raw), null, 2));
+      } catch {
+        setQueryResult(raw);
+      }
+    } catch (reason) {
+      setQueryError(errorMessage(reason));
+    } finally {
+      setQueryBusy(false);
+    }
+  };
+
+  const flushCache = async () => {
+    try {
+      setFlushMessage(await controllerFlushDns());
+      setFlushOpen(false);
+    } catch (reason) {
+      setQueryError(errorMessage(reason));
+      setFlushOpen(false);
     }
   };
 
@@ -241,6 +279,56 @@ export function DnsPage() {
             </div>
           </>
         ) : null}
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <div className="card-title-row">
+            <h2 className="card-title">DNS 查询</h2>
+            <span className="chip chip-muted">controller</span>
+          </div>
+        </div>
+        <div className="dns-query-form">
+          <label className="field grow">
+            <span>域名</span>
+            <input
+              className="input mono"
+              value={queryName}
+              onChange={(event) => setQueryName(event.target.value)}
+              placeholder="example.com"
+              spellCheck={false}
+            />
+          </label>
+          <label className="field">
+            <span>类型</span>
+            <Select
+              value={queryType}
+              options={['A', 'AAAA', 'CNAME', 'TXT'].map((value) => ({ value, label: value }))}
+              onChange={setQueryType}
+              ariaLabel="DNS 查询类型"
+            />
+          </label>
+          <button
+            className="btn btn-primary"
+            type="button"
+            onClick={() => void runQuery()}
+            disabled={queryBusy || browser || !queryName.trim()}
+          >
+            <Search size={15} />
+            查询
+          </button>
+          <button
+            className="btn btn-ghost"
+            type="button"
+            onClick={() => setFlushOpen(true)}
+            disabled={browser}
+          >
+            清空缓存
+          </button>
+        </div>
+        {queryError ? <p className="notice notice-warn">{queryError}</p> : null}
+        {flushMessage ? <p className="notice notice-ok">{flushMessage}</p> : null}
+        {queryResult ? <pre className="code-block output-block">{queryResult}</pre> : null}
       </div>
 
       <div className="stack">
@@ -503,6 +591,15 @@ export function DnsPage() {
             </div>
           ) : null}
       </div>
+      {flushOpen ? (
+        <ConfirmDialog
+          title="清空 DNS 缓存"
+          message="确定清空运行中 mihomo 的 DNS 缓存？"
+          confirmLabel="清空"
+          onConfirm={flushCache}
+          onClose={() => setFlushOpen(false)}
+        />
+      ) : null}
     </section>
   );
 }

@@ -211,6 +211,16 @@ export interface ControllerConnection {
   start: string;
 }
 
+export async function controllerDnsQuery(name: string, kind: string): Promise<string> {
+  if (!isTauriRuntime()) throw new Error('Browser mode: controller not available.');
+  return invoke<string>('controller_dns_query', { name, kind });
+}
+
+export async function controllerFlushDns(): Promise<string> {
+  if (!isTauriRuntime()) throw new Error('Browser mode: controller not available.');
+  return invoke<string>('controller_flush_dns');
+}
+
 export async function saveController(endpoint: string, secret: string): Promise<void> {
   if (!isTauriRuntime()) return;
   await invoke('save_controller', { endpoint, secret });

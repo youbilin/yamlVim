@@ -179,6 +179,15 @@ impl ControllerClient {
             .ok_or_else(|| "no delay in response".to_string())
     }
 
+    /// Query the controller's DNS resolver.
+    pub fn query_dns(&self, name: &str, kind: &str) -> Result<String, String> {
+        self.get(&format!(
+            "/dns/query?name={}&type={}",
+            urlencode(name),
+            urlencode(kind)
+        ))
+    }
+
     /// Flush DNS cache.
     pub fn flush_dns(&self) -> Result<(), String> {
         self.put("/cache/dns/flush", "").map(|_| ())

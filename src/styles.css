@@ -1535,3 +1535,22 @@ code {
   }
 }
 
+
+/* === DNS query form === */
+.dns-query-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px auto auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.dns-query-form .btn {
+  height: 36px;
+}
+
+@media (max-width: 900px) {
+  .dns-query-form {
+    grid-template-columns: 1fr;
+  }
+}
+

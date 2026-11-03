@@ -1267,6 +1267,37 @@ fn create_chain_node(
 }
 
 #[tauri::command]
+async fn controller_dns_query(name: String, kind: String) -> Result<String, String> {
+    let settings = load_settings()?;
+    let endpoint = settings.controller_endpoint.trim().to_string();
+    if endpoint.is_empty() {
+        return Err("请先配置控制器地址和密钥".into());
+    }
+    let client = ControllerClient::from_parts(
+        &endpoint,
+        &settings.controller_secret,
+        ControllerTransport::Tcp,
+    );
+    client.query_dns(&name, &kind)
+}
+
+#[tauri::command]
+async fn controller_flush_dns() -> Result<String, String> {
+    let settings = load_settings()?;
+    let endpoint = settings.controller_endpoint.trim().to_string();
+    if endpoint.is_empty() {
+        return Err("请先配置控制器地址和密钥".into());
+    }
+    let client = ControllerClient::from_parts(
+        &endpoint,
+        &settings.controller_secret,
+        ControllerTransport::Tcp,
+    );
+    client.flush_dns()?;
+    Ok("DNS 缓存已清空".into())
+}
+
+#[tauri::command]
 async fn controller_get(path: String) -> Result<String, String> {
     let settings = load_settings()?;
     let endpoint = settings.controller_endpoint.trim().to_string();
@@ -1432,6 +1463,8 @@ pub fn run() {
             import_node_links,
             controller_get,
             controller_delay,
+            controller_dns_query,
+            controller_flush_dns,
             save_controller,
             list_exports,
             read_export,
