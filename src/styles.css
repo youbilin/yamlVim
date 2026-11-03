@@ -1018,3 +1018,201 @@ code {
   gap: 8px;
 }
 
+
+/* === Sidebar collapse + hover expand === */
+.sidebar {
+  width: 228px;
+  flex: 0 0 228px;
+  transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              flex-basis 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar.collapsed {
+  width: 56px;
+  flex: 0 0 56px;
+}
+
+.sidebar.collapsed:hover {
+  width: 228px;
+  flex: 0 0 228px;
+  box-shadow: 6px 0 24px rgba(0, 0, 0, 0.12);
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 8px 12px;
+  min-height: 36px;
+}
+
+.sidebar.collapsed .sidebar-head {
+  justify-content: center;
+}
+
+.sidebar.collapsed:hover .sidebar-head {
+  justify-content: space-between;
+}
+
+.sidebar-toggle {
+  width: 28px;
+  height: 28px;
+  border-color: transparent;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.sidebar-toggle:hover {
+  color: var(--ink);
+  background: var(--soft);
+}
+
+.github-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--muted);
+  transition: color 120ms ease;
+}
+
+.github-link:hover {
+  color: var(--ink);
+  background: var(--soft);
+}
+
+.sidebar.collapsed .github-link {
+  display: none;
+}
+
+.sidebar.collapsed:hover .github-link {
+  display: flex;
+}
+
+.sidebar.collapsed .nav-label {
+  display: none;
+}
+
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 10px;
+}
+
+.sidebar.collapsed .nav-item span {
+  opacity: 0;
+  width: 0;
+  overflow: hidden;
+  transition: opacity 120ms ease, width 200ms ease;
+}
+
+.sidebar.collapsed:hover .nav-item span {
+  opacity: 1;
+  width: auto;
+}
+
+.sidebar.collapsed .sidebar-toggle {
+  position: absolute;
+  right: 4px;
+  top: 10px;
+}
+
+.sidebar.collapsed:hover .sidebar-toggle {
+  position: static;
+}
+
+/* === Soft boundary shadows === */
+.sidebar {
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.04);
+}
+
+.topbar {
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
+}
+
+/* === Nav icon draw animation (slow + elegant) === */
+.nav-item svg {
+  flex: 0 0 auto;
+  transition: transform 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  overflow: visible;
+}
+
+.nav-item:hover svg * {
+  animation: nav-icon-draw 800ms cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+@keyframes nav-icon-draw {
+  0% {
+    stroke-dasharray: 100;
+    stroke-dashoffset: 100;
+    opacity: 0.2;
+  }
+  60% {
+    opacity: 0.8;
+  }
+  100% {
+    stroke-dasharray: 100;
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+.nav-item span {
+  display: inline-block;
+  transition: transform 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.nav-item:hover span {
+  transform: translateX(2px);
+}
+
+.nav-item:hover {
+  transform: translateX(1px);
+}
+
+/* === Custom select === */
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2374716b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 10px center;
+  background-repeat: no-repeat;
+  padding-right: 30px;
+}
+
+/* === Export file preview overlay === */
+.preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.preview-panel {
+  width: min(720px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+}
+
+.preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.preview-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+

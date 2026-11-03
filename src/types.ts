@@ -123,3 +123,10 @@ export interface ConfigApplyResult {
   validation: ConfigValidation;
   snapshot?: string;
 }
+
+export interface ExportFile {
+  name: string;
+  path: string;
+  sizeBytes: number;
+}
+

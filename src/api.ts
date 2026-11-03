@@ -7,6 +7,7 @@ import type {
   ConfigValidation,
   CoreProbe,
   DnsInput,
+  ExportFile,
   WorkspaceView,
 } from './types';
 
@@ -223,6 +224,23 @@ export async function controllerGet(path: string): Promise<string> {
 export async function controllerDelay(name: string): Promise<{ name: string; delayMs?: number; error?: string }> {
   if (!isTauriRuntime()) throw new Error('Browser mode: controller not available.');
   return invoke<{ name: string; delayMs?: number; error?: string }>('controller_delay', { name });
+}
+
+export async function listExports(): Promise<ExportFile[]> {
+  if (!isTauriRuntime()) return [];
+  return invoke<ExportFile[]>('list_exports');
+}
+
+export async function readExport(path: string): Promise<string> {
+  if (!isTauriRuntime()) return '';
+  return invoke<string>('read_export', { path });
+}
+
+export async function loadExportAsWorkspace(path: string): Promise<ConfigStatus> {
+  if (!isTauriRuntime()) {
+    throw new Error('Browser mode cannot load files.');
+  }
+  return invoke<ConfigStatus>('load_export_as_workspace', { path });
 }
 
 export async function exportConfig(): Promise<string> {
