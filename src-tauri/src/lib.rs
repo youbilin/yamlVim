@@ -78,7 +78,6 @@ struct ConfigStatus {
     node_count: usize,
     exit_count: usize,
     rule_count: usize,
-    history_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     config_yaml: Option<String>,
 }
@@ -130,10 +129,6 @@ fn core_data_dir() -> Result<PathBuf, String> {
     Ok(app_data_dir()?.join("core"))
 }
 
-fn history_dir() -> Result<PathBuf, String> {
-    Ok(app_data_dir()?.join("history"))
-}
-
 fn exports_dir() -> Result<PathBuf, String> {
     Ok(app_data_dir()?.join("exports"))
 }
@@ -173,35 +168,12 @@ fn timestamp() -> u128 {
         .unwrap_or(0)
 }
 
-fn history_snapshot(label: &str, yaml: &str) -> Result<PathBuf, String> {
-    let dir = history_dir()?;
-    fs::create_dir_all(&dir)
-        .map_err(|error| format!("failed to create {}: {error}", dir.display()))?;
-    let path = dir.join(format!("{}-{label}.yaml", timestamp()));
-    write_atomic(&path, yaml)?;
-    Ok(path)
+fn history_snapshot(_label: &str, _yaml: &str) -> Result<PathBuf, String> {
+    Ok(PathBuf::new())
 }
 
 fn history_count() -> Result<usize, String> {
-    let dir = history_dir()?;
-    if !dir.exists() {
-        return Ok(0);
-    }
-    let entries =
-        fs::read_dir(&dir).map_err(|error| format!("failed to read {}: {error}", dir.display()))?;
-    let mut count = 0;
-    for entry in entries {
-        let entry = entry.map_err(|error| error.to_string())?;
-        if entry
-            .path()
-            .extension()
-            .and_then(|extension| extension.to_str())
-            == Some("yaml")
-        {
-            count += 1;
-        }
-    }
-    Ok(count)
+    Ok(0)
 }
 
 fn is_share_link(token: &str) -> bool {
@@ -635,7 +607,6 @@ fn config_status() -> Result<ConfigStatus, String> {
         node_count,
         exit_count,
         rule_count,
-        history_count: history_count()?,
         config_yaml,
     })
 }
@@ -1076,6 +1047,84 @@ fn save_controller(endpoint: String, secret: String) -> Result<(), String> {
     save_settings(settings)
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportEntry {
+    name: String,
+    path: String,
+    size_bytes: u64,
+}
+
+#[tauri::command]
+fn list_exports() -> Result<Vec<ExportEntry>, String> {
+    let dir = exports_dir()?;
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    let entries =
+        fs::read_dir(&dir).map_err(|error| format!("failed to read {}: {error}", dir.display()))?;
+    let mut result = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) == Some("yaml") {
+            let metadata = entry
+                .metadata()
+                .map_err(|error| format!("failed to read metadata: {error}"))?;
+            result.push(ExportEntry {
+                name: path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+                path: path.display().to_string(),
+                size_bytes: metadata.len(),
+            });
+        }
+    }
+    result.sort_by(|a, b| b.name.cmp(&a.name));
+    Ok(result)
+}
+
+#[tauri::command]
+fn read_export(path: String) -> Result<String, String> {
+    read_text(Path::new(&path))
+}
+
+#[tauri::command]
+fn load_export_as_workspace(path: String) -> Result<ConfigStatus, String> {
+    let text = read_text(Path::new(&path))?;
+    let mut workspace = Workspace::from_yaml(&text).map_err(|error| error.to_string())?;
+    let data = app_data_dir()?;
+    fs::create_dir_all(&data)
+        .map_err(|error| format!("failed to create {}: {error}", data.display()))?;
+    copy_workspace_providers(&mut workspace, &data, &data)?;
+    workspace.normalize();
+    save_workspace_files(&workspace, Some("loaded-export"))?;
+    config_status()
+}
+
+#[tauri::command]
+async fn switch_proxy(group: String, name: String) -> Result<String, String> {
+    let settings = load_settings()?;
+    let endpoint = settings.controller_endpoint.trim().to_string();
+    if endpoint.is_empty() {
+        return Err("请先配置控制器地址和密钥".into());
+    }
+    let client = ControllerClient::from_parts(
+        &endpoint,
+        &settings.controller_secret,
+        ControllerTransport::Tcp,
+    );
+    let encoded = group
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("%{:02X}", byte))
+        .collect::<String>();
+    let body = format!("{{\"name\":\"{name}\"}}");
+    client.put(&format!("/proxies/{encoded}"), &body)
+}
+
 #[tauri::command]
 fn export_config() -> Result<String, String> {
     let workspace = load_workspace()?;
@@ -1099,13 +1148,11 @@ pub fn run() {
             save_settings,
             data_dir,
             probe_core,
-            compile_dns_preview,
             config_status,
             workspace_view,
             workspace_dns_yaml,
             apply_dns_yaml,
             import_config,
-            preview_dns_config,
             validate_config,
             apply_dns_config,
             save_workspace_yaml,
@@ -1116,7 +1163,11 @@ pub fn run() {
             import_node_links,
             controller_get,
             controller_delay,
-            save_controller
+            save_controller,
+            list_exports,
+            read_export,
+            load_export_as_workspace,
+            switch_proxy
         ])
         .run(tauri::generate_context!())
         .expect("error while running YamlVim");
@@ -1187,7 +1238,6 @@ mod tests {
         assert_eq!(status.node_count, 1);
         assert_eq!(status.exit_count, 1);
         assert_eq!(status.rule_count, 1);
-        assert!(status.history_count >= 2);
         assert!(status
             .geodata
             .iter()
@@ -1226,8 +1276,6 @@ mod tests {
         assert_eq!(added_status.node_count, 1);
         let third = fs::read_to_string(third_export).unwrap();
         assert!(third.contains("node-c"));
-        assert!(data.join("history").exists());
-
         let _ = fs::remove_dir_all(root);
     }
 }
