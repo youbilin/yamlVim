@@ -2064,3 +2064,9 @@ body,
   overflow-wrap: anywhere;
 }
 
+
+.file-preview-code {
+  max-height: 64vh;
+  overflow: auto;
+}
+

@@ -10,6 +10,7 @@ import {
   readExport,
 } from '../api';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { Dialog } from '../components/Dialog';
 import { toast } from '../store/toast';
 import { useWorkspaceData } from '../store/workspace';
 import type { ExportFile } from '../types';
@@ -152,21 +153,16 @@ export function FilesPage() {
         ) : null}
 
         {preview ? (
-          <div className="preview-overlay">
-            <div className="preview-panel">
-              <div className="preview-head">
-                <h3>{preview.name}</h3>
-                <button
-                  className="btn btn-ghost"
-                  type="button"
-                  onClick={() => setPreview(null)}
-                >
-                  关闭
-                </button>
-              </div>
-              <pre className="code-block">{preview.yaml}</pre>
+          <Dialog title={preview.name} onClose={() => setPreview(null)}>
+            <div className="dialog-body">
+              <pre className="code-block file-preview-code">{preview.yaml}</pre>
             </div>
-          </div>
+            <div className="dialog-foot">
+              <button className="btn btn-ghost" type="button" onClick={() => setPreview(null)}>
+                关闭
+              </button>
+            </div>
+          </Dialog>
         ) : null}
       </div>
     </section>
