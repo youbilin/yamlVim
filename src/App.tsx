@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   Cpu,
@@ -72,6 +72,7 @@ function Shell() {
     return window.localStorage.getItem('yamlvim.sidebar') === 'collapsed';
   });
   const [coreOpen, setCoreOpen] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
   const browser = !isTauriRuntime();
   const dotClass = probe
     ? probe.kind === 'managed'
@@ -84,6 +85,10 @@ function Shell() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0, left: 0 });
+  }, [location.pathname]);
 
   const toggleSidebar = () => {
     setCollapsed((current) => {
@@ -161,7 +166,7 @@ function Shell() {
           </div>
         </header>
 
-        <div className="content">
+        <div className="content" ref={contentRef}>
           <Routes>
             <Route path="/" element={<Navigate to="/live" replace />} />
             <Route path="/core" element={<Navigate to="/live" replace />} />

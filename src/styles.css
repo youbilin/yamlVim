@@ -2467,3 +2467,10 @@ body,
 .sidebar.collapsed:hover .nav-item {
   gap: 9px;
 }
+.sidebar.collapsed .sidebar-head {
+  padding: 0;
+}
+.card-head .inline-actions {
+  margin-top: 0;
+  gap: 6px;
+}

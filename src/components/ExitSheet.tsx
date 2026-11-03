@@ -30,8 +30,21 @@ interface ExitSheetProps {
 }
 
 function template(type: string): string {
-  const lines = [`name: ${type === 'select' ? 'Select' : 'Auto'}`, `type: ${type}`];
-  lines.push('proxies:', '  - DIRECT');
+  const lines = [
+    'name: ' + (type === 'select' ? 'Select' : 'Auto'),
+    'type: ' + type,
+    'proxies:',
+    '  - DIRECT',
+  ];
+  if (type !== 'select') {
+    lines.push('url: https://www.gstatic.com/generate_204', 'interval: 300');
+  }
+  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+}
+
+function groupYaml(name: string, type: string, members: string[]): string {
+  const lines = ['name: ' + name, 'type: ' + type, 'proxies:'];
+  for (const member of members) lines.push('  - ' + member);
   if (type !== 'select') {
     lines.push('url: https://www.gstatic.com/generate_204', 'interval: 300');
   }
@@ -39,7 +52,9 @@ function template(type: string): string {
 }
 
 export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }: ExitSheetProps) {
-  const [tab, setTab] = useState<'generate' | 'manual'>(originalName ? 'manual' : 'generate');
+  const [tab, setTab] = useState<'recommend' | 'generate' | 'manual'>(
+    originalName ? 'manual' : 'recommend',
+  );
   const [name, setName] = useState('');
   const [type, setType] = useState('select');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -65,15 +80,19 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
   const toggleCombo = (comboId: string) => {
     const combo = ALL_COMBOS.find((item) => item.id === comboId);
     if (!combo) return;
+    const active = combo.entries.every((id) => selectedRuleSets.has(id));
     setSelectedRuleSets((current) => {
       const next = new Set(current);
-      const allSelected = combo.entries.every((id) => next.has(id));
       for (const id of combo.entries) {
-        if (allSelected) next.delete(id);
+        if (active) next.delete(id);
         else next.add(id);
       }
       return next;
     });
+    if (!active) {
+      const isAutoName = !name.trim() || ALL_COMBOS.some((item) => item.nameZh === name);
+      if (isAutoName) setName(combo.nameZh);
+    }
   };
 
   const selectedRuleSetItems: RuleCatalogItem[] = [...selectedRuleSets]
@@ -89,13 +108,28 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
       popular: entry!.popular,
     }));
 
-  const generateYaml = () => {
-    const lines = [`name: ${name.trim()}`, `type: ${type}`, 'proxies:'];
-    for (const node of selected) lines.push(`  - ${node}`);
-    if (type !== 'select') {
-      lines.push('url: https://www.gstatic.com/generate_204', 'interval: 300');
+  const saveRecommended = async () => {
+    if (!name.trim()) {
+      toast.error('请填写策略组名称');
+      return;
     }
-    return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+    if (!nodes.length) {
+      toast.error('没有可用节点');
+      return;
+    }
+    setBusy(true);
+    try {
+      await onSave(
+        null,
+        groupYaml(name.trim(), type, nodes),
+        selectedRuleSetItems,
+        name.trim(),
+      );
+    } catch (reason) {
+      toast.error(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const saveGenerated = async () => {
@@ -109,7 +143,7 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
     }
     setBusy(true);
     try {
-      await onSave(null, generateYaml(), selectedRuleSetItems, name.trim());
+      await onSave(null, groupYaml(name.trim(), type, [...selected]), undefined, name.trim());
     } catch (reason) {
       toast.error(errorMessage(reason));
     } finally {
@@ -133,9 +167,16 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
   };
 
   return (
-    <SideSheet title={originalName ? `编辑策略组 · ${originalName}` : '新增策略组'} onClose={onClose}>
+    <SideSheet title={originalName ? '编辑策略组 · ' + originalName : '新增策略组'} onClose={onClose}>
       {!originalName ? (
         <div className="sheet-tabs">
+          <button
+            className={tab === 'recommend' ? 'sheet-tab active' : 'sheet-tab'}
+            type="button"
+            onClick={() => setTab('recommend')}
+          >
+            推荐组合
+          </button>
           <button
             className={tab === 'generate' ? 'sheet-tab active' : 'sheet-tab'}
             type="button"
@@ -150,6 +191,63 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
           >
             手动
           </button>
+        </div>
+      ) : null}
+
+      {tab === 'recommend' ? (
+        <div className="sheet-section">
+          <div className="form-grid two">
+            <label className="field">
+              <span>名称</span>
+              <input
+                className="input"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="选择组合后自动填充"
+              />
+            </label>
+            <label className="field">
+              <span>类型</span>
+              <Select
+                value={type}
+                options={GROUP_TYPES}
+                onChange={setType}
+                ariaLabel="策略组类型"
+              />
+            </label>
+          </div>
+          <span className="hint">自动包含全部 {nodes.length} 个节点</span>
+          <div className="preset-list combo-pick-list">
+            {ALL_COMBOS.map((combo) => {
+              const active = combo.entries.every((id) => selectedRuleSets.has(id));
+              return (
+                <button
+                  type="button"
+                  key={combo.id}
+                  className={active ? 'preset-row selected' : 'preset-row'}
+                  onClick={() => toggleCombo(combo.id)}
+                >
+                  <span className="preset-check">{active ? <Check size={12} /> : null}</span>
+                  <span className="preset-main">
+                    <strong>{combo.nameZh}</strong>
+                    <span>{combo.description}</span>
+                  </span>
+                  <span className="chip chip-muted">{combo.entryCount}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="sheet-actions">
+            <span className="sheet-foot-note">已选 {selectedRuleSets.size} 个规则集</span>
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={() => void saveRecommended()}
+              disabled={busy}
+            >
+              {selectedRuleSets.size ? '创建策略组并导入规则' : '创建策略组'}
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -179,14 +277,16 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
             <button className="btn btn-ghost" type="button" onClick={toggleAll}>
               {allSelected ? '取消全选' : '全选'}
             </button>
-            <span className="hint">{selected.size} / {nodes.length}</span>
+            <span className="hint">
+              {selected.size} / {nodes.length}
+            </span>
           </div>
           <div className="preset-list">
             {nodes.map((node) => (
               <button
                 type="button"
                 key={node}
-                className={`preset-row ${selected.has(node) ? 'selected' : ''}`}
+                className={selected.has(node) ? 'preset-row selected' : 'preset-row'}
                 onClick={() => toggle(node)}
               >
                 <span className="preset-check">
@@ -198,28 +298,6 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
               </button>
             ))}
           </div>
-          <div className="sheet-subtitle">推荐规则集组合</div>
-          <div className="preset-list combo-pick-list">
-            {ALL_COMBOS.map((combo) => {
-              const active = combo.entries.every((id) => selectedRuleSets.has(id));
-              return (
-                <button
-                  type="button"
-                  key={combo.id}
-                  className={active ? 'preset-row selected' : 'preset-row'}
-                  onClick={() => toggleCombo(combo.id)}
-                >
-                  <span className="preset-check">{active ? <Check size={12} /> : null}</span>
-                  <span className="preset-main">
-                    <strong>{combo.nameZh}</strong>
-                    <span>{combo.description}</span>
-                  </span>
-                  <span className="chip chip-muted">{combo.entryCount}</span>
-                </button>
-              );
-            })}
-          </div>
-          <span className="hint">已选 {selectedRuleSets.size} 个规则集</span>
           <div className="sheet-actions">
             <button
               className="btn btn-primary"
@@ -227,7 +305,7 @@ export function ExitSheet({ originalName, initialYaml, nodes, onSave, onClose }:
               onClick={() => void saveGenerated()}
               disabled={busy}
             >
-              {selectedRuleSets.size ? '创建策略组并导入规则' : '创建策略组'}
+              创建策略组
             </button>
           </div>
         </div>

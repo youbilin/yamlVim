@@ -131,6 +131,16 @@ export async function importNodeLinks(text: string): Promise<ConfigStatus> {
   return invoke<ConfigStatus>('import_node_links', { text });
 }
 
+export async function saveDnsDefault(yaml: string): Promise<string> {
+  if (!isTauriRuntime()) throw new Error('Browser mode cannot save the DNS default.');
+  return invoke<string>('save_dns_default', { yaml });
+}
+
+export async function loadDnsDefault(): Promise<string | null> {
+  if (!isTauriRuntime()) return null;
+  return invoke<string | null>('load_dns_default');
+}
+
 export async function getDnsYaml(): Promise<string> {
   if (!isTauriRuntime()) return 'dns:\n  enable: true\n';
   return invoke<string>('workspace_dns_yaml');

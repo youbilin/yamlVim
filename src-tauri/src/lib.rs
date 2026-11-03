@@ -600,6 +600,31 @@ fn config_status() -> Result<ConfigStatus, String> {
 fn workspace_view() -> Result<WorkspaceView, String> {
     Ok(load_workspace()?.view())
 }
+
+#[tauri::command]
+fn save_dns_default(yaml: String) -> Result<String, String> {
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(&yaml).map_err(|error| error.to_string())?;
+    if value.as_mapping().is_none() {
+        return Err("DNS YAML 必须是一个 mapping".into());
+    }
+    let data = app_data_dir()?;
+    fs::create_dir_all(&data)
+        .map_err(|error| format!("failed to create {}: {error}", data.display()))?;
+    let path = data.join("dns-default.yaml");
+    write_atomic(&path, &yaml)?;
+    Ok(path.display().to_string())
+}
+
+#[tauri::command]
+fn load_dns_default() -> Result<Option<String>, String> {
+    let path = app_data_dir()?.join("dns-default.yaml");
+    if !path.exists() {
+        return Ok(None);
+    }
+    read_text(&path).map(Some)
+}
+
 #[tauri::command]
 fn workspace_dns_yaml() -> Result<String, String> {
     let workspace = load_workspace()?;
@@ -1601,6 +1626,8 @@ pub fn run() {
             workspace_view,
             workspace_dns_yaml,
             apply_dns_yaml,
+            save_dns_default,
+            load_dns_default,
             import_config,
             validate_config,
             apply_dns_config,
@@ -1788,6 +1815,9 @@ mod tests {
         assert_eq!(exit_created.exit_count, 2);
         assert_eq!(exit_deleted.exit_count, 1);
         assert_eq!(rule_set_status.rule_count, 2);
+        let default_path = save_dns_default("dns:\n  enable: true\n".into()).unwrap();
+        assert!(Path::new(&default_path).is_file());
+        assert!(load_dns_default().unwrap().unwrap().contains("enable"));
         let _ = fs::remove_dir_all(root);
     }
 }

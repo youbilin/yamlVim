@@ -9,6 +9,8 @@ import {
   errorMessage,
   getDnsYaml,
   isTauriRuntime,
+  loadDnsDefault,
+  saveDnsDefault,
 } from '../api';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { toast } from '../store/toast';
@@ -99,6 +101,7 @@ export function DnsPage() {
   const [dnsYaml, setDnsYaml] = useState('');
   const [rawOpen, setRawOpen] = useState(false);
   const [rawBusy, setRawBusy] = useState(false);
+  const [defaultBusy, setDefaultBusy] = useState(false);
   const [queryName, setQueryName] = useState('');
   const [queryType, setQueryType] = useState('A');
   const [queryResult, setQueryResult] = useState('');
@@ -117,6 +120,45 @@ export function DnsPage() {
   useEffect(() => {
     void loadDnsYaml();
   }, []);
+
+  const saveDefault = async () => {
+    if (!dnsYaml.trim()) {
+      toast.error('DNS YAML 为空');
+      return;
+    }
+    setDefaultBusy(true);
+    try {
+      await saveDnsDefault(dnsYaml);
+      toast.success('默认 DNS 已保存');
+    } catch (reason) {
+      toast.error(errorMessage(reason));
+    } finally {
+      setDefaultBusy(false);
+    }
+  };
+
+  const applyDefault = async () => {
+    setDefaultBusy(true);
+    try {
+      const yaml = await loadDnsDefault();
+      if (!yaml) {
+        toast.error('还没有保存默认 DNS');
+        return;
+      }
+      const result = await applyDnsYaml(yaml);
+      if (result.ok) {
+        toast.success('默认 DNS 已应用');
+        await useWorkspaceData.getState().load();
+        await loadDnsYaml();
+      } else {
+        toast.error('mihomo -t 校验未通过');
+      }
+    } catch (reason) {
+      toast.error(errorMessage(reason));
+    } finally {
+      setDefaultBusy(false);
+    }
+  };
 
   const handleApplyYaml = async () => {
     setRawBusy(true);
@@ -225,6 +267,24 @@ export function DnsPage() {
         <div className="card-head">
           <div className="card-title-row">
             <h2 className="card-title">DNS YAML</h2>
+          </div>
+          <div className="inline-actions">
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={() => void saveDefault()}
+              disabled={defaultBusy || browser}
+            >
+              保存为默认
+            </button>
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={() => void applyDefault()}
+              disabled={defaultBusy || browser}
+            >
+              应用默认
+            </button>
             <button
               className="btn btn-ghost"
               type="button"
