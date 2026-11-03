@@ -1617,7 +1617,7 @@ code {
 
 /* === Final layout: fixed rail, content reserves space, hover overlays === */
 :root {
-  --sidebar-w: 168px;
+  --sidebar-w: 152px;
   --sidebar-w-collapsed: 52px;
   --ease-premium: cubic-bezier(0.22, 1, 0.36, 1);
 }
