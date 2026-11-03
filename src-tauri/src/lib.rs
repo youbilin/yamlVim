@@ -4,8 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::menu::{Menu, MenuItem};
-use tauri::Manager;
 use tauri::tray::TrayIconBuilder;
+use tauri::Manager;
 
 use base64::alphabet;
 use base64::engine::{general_purpose::GeneralPurpose, DecodePaddingMode, GeneralPurposeConfig};
@@ -52,22 +52,6 @@ impl Default for AppSettings {
             controller_secret: String::new(),
         }
     }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DnsPreview {
-    enabled: bool,
-    yaml: String,
-    warnings: Vec<DnsWarning>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DnsConfigPreview {
-    enabled: bool,
-    yaml: String,
-    warnings: Vec<DnsWarning>,
 }
 
 #[derive(Debug, Serialize)]
@@ -174,10 +158,6 @@ fn timestamp() -> u128 {
 
 fn history_snapshot(_label: &str, _yaml: &str) -> Result<PathBuf, String> {
     Ok(PathBuf::new())
-}
-
-fn history_count() -> Result<usize, String> {
-    Ok(0)
 }
 
 fn is_share_link(token: &str) -> bool {
@@ -569,17 +549,6 @@ async fn probe_core(path: String) -> Result<CoreProbe, String> {
 }
 
 #[tauri::command]
-fn compile_dns_preview(input: DnsInput) -> Result<DnsPreview, String> {
-    let compiled = compile_dns(&input).map_err(|error| error.to_string())?;
-    let yaml = serde_yaml::to_string(&compiled.output()).map_err(|error| error.to_string())?;
-    Ok(DnsPreview {
-        enabled: compiled.enabled,
-        yaml,
-        warnings: compiled.warnings,
-    })
-}
-
-#[tauri::command]
 fn config_status() -> Result<ConfigStatus, String> {
     let data = app_data_dir()?;
     let workspace = load_workspace_opt()?;
@@ -810,25 +779,6 @@ fn import_text_or_links(
 }
 
 #[tauri::command]
-fn preview_dns_config(input: DnsInput) -> Result<DnsConfigPreview, String> {
-    let workspace = load_workspace()?;
-    let mut input = input;
-    input.hosts = workspace.hosts.clone();
-    let compiled = compile_dns(&input).map_err(|error| error.to_string())?;
-    let mut candidate = workspace;
-    candidate.apply_dns(&compiled);
-    candidate.normalize();
-    let yaml = candidate
-        .to_yaml(false)
-        .map_err(|error| error.to_string())?;
-    Ok(DnsConfigPreview {
-        enabled: compiled.enabled,
-        yaml,
-        warnings: compiled.warnings,
-    })
-}
-
-#[tauri::command]
 async fn validate_config(yaml: String) -> Result<ConfigValidation, String> {
     let settings = load_settings()?;
     let core = resolve_core_path(Some(&settings.core_path))?;
@@ -999,14 +949,6 @@ fn add_node_yaml(yaml: String) -> Result<ConfigStatus, String> {
     workspace.normalize();
     save_workspace_files(&workspace, Some("node-added"))?;
     config_status()
-}
-
-fn yaml_mapping(yaml: &str) -> Result<Mapping, String> {
-    let value: serde_yaml::Value = serde_yaml::from_str(yaml).map_err(|error| error.to_string())?;
-    value
-        .as_mapping()
-        .cloned()
-        .ok_or_else(|| "YAML 必须是一个 mapping".to_string())
 }
 
 fn ensure_node_name(mapping: &Mapping) -> Result<String, String> {
@@ -1616,6 +1558,17 @@ mod tests {
         )
         .unwrap();
         let third_export = export_config().unwrap();
+        let node_text = node_yaml("node-c".into()).unwrap();
+        let renamed_status = update_node_yaml(
+            "node-c".into(),
+            node_text.replace("name: node-c", "name: node-c2"),
+        )
+        .unwrap();
+        let rule_status = save_rules(vec!["MATCH,DIRECT".to_string()]).unwrap();
+        let chain_status =
+            create_chain_node("node-c2".into(), "DIRECT".into(), Some("chain-c".into())).unwrap();
+        delete_node("chain-c".into()).unwrap();
+        let final_status = delete_node("node-c2".into()).unwrap();
 
         match previous {
             Some(value) => std::env::set_var("YAMLVIM_DATA_DIR", value),
@@ -1634,7 +1587,7 @@ mod tests {
 
         let workspace_text = fs::read_to_string(data.join("workspace.json")).unwrap();
         let workspace: Workspace = serde_json::from_str(&workspace_text).unwrap();
-        assert_eq!(workspace.node_count(), 1);
+        assert_eq!(workspace.node_count(), 0);
 
         let generated = fs::read_to_string(data.join("config.yaml")).unwrap();
         assert!(!generated.contains("node-a"));
@@ -1664,6 +1617,10 @@ mod tests {
         assert_eq!(added_status.node_count, 1);
         let third = fs::read_to_string(third_export).unwrap();
         assert!(third.contains("node-c"));
+        assert_eq!(renamed_status.node_count, 1);
+        assert_eq!(rule_status.rule_count, 1);
+        assert_eq!(chain_status.node_count, 2);
+        assert_eq!(final_status.node_count, 0);
         let _ = fs::remove_dir_all(root);
     }
 }
