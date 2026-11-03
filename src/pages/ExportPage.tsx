@@ -10,8 +10,9 @@ import {
   saveWorkspaceYaml,
   validateConfig,
 } from '../api';
+import { toast } from '../store/toast';
 import { useWorkspaceData } from '../store/workspace';
-import type { ConfigStatus, ConfigValidation } from '../types';
+import type { ConfigStatus } from '../types';
 
 interface DiffLine {
   kind: 'same' | 'add' | 'remove';
@@ -67,10 +68,7 @@ export function ExportPage() {
   const [status, setStatus] = useState<ConfigStatus | null>(null);
   const [draftYaml, setDraftYaml] = useState('');
   const [loadedYaml, setLoadedYaml] = useState('');
-  const [validation, setValidation] = useState<ConfigValidation | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
   const [diff, setDiff] = useState<DiffLine[] | null>(null);
   const version = useWorkspaceData((state) => state.version);
   const browser = !isTauriRuntime();
@@ -83,7 +81,7 @@ export function ExportPage() {
       setLoadedYaml(next.configYaml ?? '');
       setDraftYaml(next.configYaml ?? '');
     } catch (reason) {
-      setError(errorMessage(reason));
+      toast.error(errorMessage(reason));
     }
   };
 
@@ -95,19 +93,17 @@ export function ExportPage() {
 
   const handleSave = async () => {
     setBusy(true);
-    setError('');
-    setMessage('');
     try {
       const next = await saveWorkspaceYaml(draftYaml);
       setStatus(next);
       setLoadedYaml(next.configYaml ?? '');
       setDraftYaml(next.configYaml ?? '');
       void useWorkspaceData.getState().load();
-      setMessage(
+      toast.success(
         `workspace 已保存：${next.nodeCount} 个节点 / ${next.exitCount} 个出口 / ${next.ruleCount} 条规则`,
       );
     } catch (reason) {
-      setError(errorMessage(reason));
+      toast.error(errorMessage(reason));
     } finally {
       setBusy(false);
     }
@@ -116,37 +112,36 @@ export function ExportPage() {
   const handleValidate = async () => {
     if (!draftYaml.trim()) return;
     setBusy(true);
-    setError('');
-    setValidation(null);
     try {
-      setValidation(await validateConfig(draftYaml));
+      const result = await validateConfig(draftYaml);
+      if (result.ok) {
+        toast.success('mihomo -t 通过');
+      } else {
+        toast.error('mihomo -t 校验未通过');
+      }
     } catch (reason) {
-      setError(errorMessage(reason));
+      toast.error(errorMessage(reason));
     } finally {
       setBusy(false);
     }
   };
 
   const handleDiff = async () => {
-    setError('');
-    setMessage('');
     try {
       const previous = await latestExport();
       if (!previous) {
-        setMessage('还没有历史导出文件');
+        toast.info('还没有历史导出文件');
         setDiff(null);
         return;
       }
       setDiff(diffLines(previous.split('\n'), draftYaml.split('\n')));
     } catch (reason) {
-      setError(errorMessage(reason));
+      toast.error(errorMessage(reason));
     }
   };
 
   const handleExport = async () => {
     setBusy(true);
-    setError('');
-    setMessage('');
     try {
       if (dirty) {
         const next = await saveWorkspaceYaml(draftYaml);
@@ -156,10 +151,10 @@ export function ExportPage() {
         void useWorkspaceData.getState().load();
       }
       const path = await exportConfig();
-      setMessage(`已导出新的 YAML：${path}`);
+      toast.success(`已导出新的 YAML：${path}`);
       await refresh();
     } catch (reason) {
-      setError(errorMessage(reason));
+      toast.error(errorMessage(reason));
     } finally {
       setBusy(false);
     }
@@ -188,7 +183,6 @@ export function ExportPage() {
       <div className="card">
         <div className="card-head">
           <div className="card-title-row">
-            <h2 className="card-title">完整 YAML</h2>
             <span className={`chip ${dirty ? 'chip-attach' : 'chip-muted'}`}>
               {dirty ? '未保存' : 'workspace'}
             </span>
@@ -243,18 +237,6 @@ export function ExportPage() {
             </button>
           </div>
         </div>
-
-        {message ? <p className="notice notice-ok">{message}</p> : null}
-        {error ? <p className="notice notice-warn">{error}</p> : null}
-        {validation ? (
-          <div className={validation.ok ? 'notice notice-ok' : 'notice notice-warn'}>
-            <strong>{validation.ok ? 'mihomo -t 通过' : '校验未通过'}</strong>
-            <details>
-              <summary>查看输出</summary>
-              <pre className="code-block output-block">{validation.output}</pre>
-            </details>
-          </div>
-        ) : null}
 
         <textarea
           className="textarea mono export-editor"

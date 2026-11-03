@@ -10,6 +10,7 @@ import {
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { YamlEditorDialog } from '../components/YamlEditorDialog';
 import { asArray, asRecord, asText } from '../lib/workspace';
+import { toast } from '../store/toast';
 import { useWorkspaceData } from '../store/workspace';
 
 interface EditingExit {
@@ -25,11 +26,9 @@ proxies:
 
 export function ExitsPage() {
   const view = useWorkspaceData((state) => state.view);
-  const error = useWorkspaceData((state) => state.error);
   const load = useWorkspaceData((state) => state.load);
   const [editing, setEditing] = useState<EditingExit | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
 
   useEffect(() => {
     void load();
@@ -42,7 +41,7 @@ export function ExitsPage() {
       const yaml = await getExitYaml(name);
       setEditing({ originalName: name, yaml });
     } catch (reason) {
-      setMessage(errorMessage(reason));
+      toast.error(errorMessage(reason));
     }
   };
 
@@ -50,15 +49,19 @@ export function ExitsPage() {
     await saveExitYaml(editing?.originalName ?? null, yaml);
     await load();
     setEditing(null);
-    setMessage('出口已保存');
+    toast.success('出口已保存');
   };
 
   const confirmDelete = async () => {
     if (!deleting) return;
-    await deleteExit(deleting);
-    await load();
-    setDeleting(null);
-    setMessage('出口已删除');
+    try {
+      await deleteExit(deleting);
+      await load();
+      setDeleting(null);
+      toast.success('出口已删除');
+    } catch (reason) {
+      toast.error(errorMessage(reason));
+    }
   };
 
   return (
@@ -66,8 +69,7 @@ export function ExitsPage() {
       <div className="card">
         <div className="card-head">
           <div className="card-title-row">
-            <h2 className="card-title">出口</h2>
-            <span className="chip chip-muted">{view ? `${view.exitCount}` : '—'}</span>
+            <span className="chip chip-muted">{view ? `${view.exitCount} 个出口` : '—'}</span>
           </div>
           <button
             className="btn btn-primary"
@@ -78,9 +80,6 @@ export function ExitsPage() {
             新增策略组
           </button>
         </div>
-
-        {error ? <p className="notice notice-info">{error}</p> : null}
-        {message ? <p className="notice notice-ok">{message}</p> : null}
 
         {exits.length ? (
           <div className="data-list">

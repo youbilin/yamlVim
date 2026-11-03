@@ -11,12 +11,12 @@ import {
   isTauriRuntime,
 } from '../api';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { toast } from '../store/toast';
 import { Select } from '../components/Select';
 import { toDnsInput } from '../lib/dns';
 import { useWorkspaceData } from '../store/workspace';
 import type {
   ActionType,
-  ConfigApplyResult,
   DnsDraft,
   DnsDraftSettings,
   DnsRuleDraft,
@@ -95,20 +95,14 @@ function needsValue(action: ActionType): boolean {
 
 export function DnsPage() {
   const [draft, setDraft] = useState<DnsDraft>(DEFAULT_DRAFT);
-  const [applyResult, setApplyResult] = useState<ConfigApplyResult | null>(null);
   const [applying, setApplying] = useState(false);
-  const [applyError, setApplyError] = useState('');
   const [dnsYaml, setDnsYaml] = useState('');
   const [rawOpen, setRawOpen] = useState(false);
   const [rawBusy, setRawBusy] = useState(false);
-  const [rawError, setRawError] = useState('');
-  const [rawMessage, setRawMessage] = useState('');
   const [queryName, setQueryName] = useState('');
   const [queryType, setQueryType] = useState('A');
   const [queryResult, setQueryResult] = useState('');
-  const [queryError, setQueryError] = useState('');
   const [queryBusy, setQueryBusy] = useState(false);
-  const [flushMessage, setFlushMessage] = useState('');
   const [flushOpen, setFlushOpen] = useState(false);
   const browser = !isTauriRuntime();
 
@@ -116,7 +110,7 @@ export function DnsPage() {
     try {
       setDnsYaml(await getDnsYaml());
     } catch (reason) {
-      setRawError(errorMessage(reason));
+      toast.error(errorMessage(reason));
     }
   };
 
@@ -126,19 +120,17 @@ export function DnsPage() {
 
   const handleApplyYaml = async () => {
     setRawBusy(true);
-    setRawError('');
-    setRawMessage('');
     try {
       const result = await applyDnsYaml(dnsYaml);
       if (result.ok) {
-        setRawMessage('DNS YAML 已应用到 workspace');
+        toast.success('DNS YAML 已应用到 workspace');
         await useWorkspaceData.getState().load();
         await loadDnsYaml();
       } else {
-        setRawError(`mihomo -t 校验未通过：${result.validation.output}`);
+        toast.error('mihomo -t 校验未通过');
       }
     } catch (reason) {
-      setRawError(errorMessage(reason));
+      toast.error(errorMessage(reason));
     } finally {
       setRawBusy(false);
     }
@@ -146,7 +138,6 @@ export function DnsPage() {
 
   const runQuery = async () => {
     setQueryBusy(true);
-    setQueryError('');
     setQueryResult('');
     try {
       const raw = await controllerDnsQuery(queryName.trim(), queryType);
@@ -156,7 +147,7 @@ export function DnsPage() {
         setQueryResult(raw);
       }
     } catch (reason) {
-      setQueryError(errorMessage(reason));
+      toast.error(errorMessage(reason));
     } finally {
       setQueryBusy(false);
     }
@@ -164,29 +155,27 @@ export function DnsPage() {
 
   const flushCache = async () => {
     try {
-      setFlushMessage(await controllerFlushDns());
+      toast.success(await controllerFlushDns());
       setFlushOpen(false);
     } catch (reason) {
-      setQueryError(errorMessage(reason));
+      toast.error(errorMessage(reason));
       setFlushOpen(false);
     }
   };
 
   const handleApply = async () => {
     setApplying(true);
-    setApplyError('');
-    setApplyResult(null);
     try {
       const result = await applyDnsConfig(toDnsInput(draft));
-      setApplyResult(result);
       if (result.ok) {
+        toast.success('DNS 覆写已应用');
         await useWorkspaceData.getState().load();
         await loadDnsYaml();
       } else {
-        setApplyError('mihomo -t 校验未通过，配置未写入。');
+        toast.error('mihomo -t 校验未通过，配置未写入');
       }
     } catch (reason) {
-      setApplyError(errorMessage(reason));
+      toast.error(errorMessage(reason));
     } finally {
       setApplying(false);
     }
@@ -257,8 +246,6 @@ export function DnsPage() {
                 spellCheck={false}
               />
             </label>
-            {rawMessage ? <p className="notice notice-ok">{rawMessage}</p> : null}
-            {rawError ? <p className="notice notice-warn">{rawError}</p> : null}
             <div className="inline-actions">
               <button
                 className="btn btn-ghost"
@@ -326,8 +313,6 @@ export function DnsPage() {
             清空缓存
           </button>
         </div>
-        {queryError ? <p className="notice notice-warn">{queryError}</p> : null}
-        {flushMessage ? <p className="notice notice-ok">{flushMessage}</p> : null}
         {queryResult ? <pre className="code-block output-block">{queryResult}</pre> : null}
       </div>
 
@@ -480,7 +465,7 @@ export function DnsPage() {
           <div className="card">
             <div className="card-head">
               <div>
-                <h2 className="card-title">覆写规则</h2>
+                <h2 className="card-title">域名解析策略</h2>
               </div>
               <button className="btn btn-ghost" type="button" onClick={addRule}>
                 <Plus size={15} />
@@ -571,25 +556,6 @@ export function DnsPage() {
               {applying ? '应用中…' : '应用 DNS 覆写'}
             </button>
           </div>
-          {applyError ? <p className="notice notice-warn">{applyError}</p> : null}
-          {applyResult ? (
-            <div className={applyResult.ok ? 'notice notice-ok' : 'notice notice-warn'}>
-              <strong>
-                {applyResult.ok
-                  ? browser
-                    ? '浏览器预览：未写入磁盘'
-                    : '已更新 workspace 并生成 config.yaml'
-                  : '校验未通过，未写入'}
-              </strong>
-              {applyResult.snapshot ? (
-                <span className="mono break">历史快照：{applyResult.snapshot}</span>
-              ) : null}
-              <details>
-                <summary>mihomo -t 输出</summary>
-                <pre className="code-block output-block">{applyResult.validation.output}</pre>
-              </details>
-            </div>
-          ) : null}
       </div>
       {flushOpen ? (
         <ConfirmDialog

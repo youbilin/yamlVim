@@ -1807,3 +1807,260 @@ code {
   }
 }
 
+
+/* === Overflow guard: no horizontal scrollbar flash === */
+html,
+body,
+#root {
+  overflow-x: hidden;
+}
+
+.content {
+  overflow-x: hidden;
+}
+
+.sidebar {
+  overflow-x: clip;
+}
+
+/* === Topbar core button === */
+.core-button {
+  position: relative;
+  width: 34px;
+  height: 34px;
+}
+
+.core-dot {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+}
+
+.core-dot.managed {
+  border-color: var(--black);
+  background: var(--black);
+}
+
+.core-dot.attach {
+  border-color: var(--ink);
+  background: var(--panel);
+}
+
+.core-dot.bad {
+  border-color: var(--muted);
+  background: var(--muted);
+}
+
+.core-dot.idle {
+  border-color: var(--line-strong);
+  background: transparent;
+}
+
+/* === Core drawer === */
+.core-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(20, 20, 20, 0.18);
+  backdrop-filter: blur(1px);
+}
+
+.core-drawer {
+  width: min(460px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  box-shadow: -24px 0 64px rgba(20, 20, 20, 0.2);
+  animation: drawer-in 220ms var(--ease-premium);
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.core-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.core-drawer-head strong {
+  font-size: 14px;
+}
+
+.core-drawer-body {
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+}
+
+.core-drawer-body .page {
+  padding: 0;
+}
+
+.core-drawer-body .card {
+  margin-bottom: 12px;
+  box-shadow: none;
+}
+
+.core-drawer-body .hint {
+  display: none;
+}
+
+/* === Toasts === */
+.toast-viewport {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 220px;
+  max-width: 360px;
+  padding: 10px 11px 10px 13px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.5;
+  box-shadow: 0 16px 40px rgba(20, 20, 20, 0.14);
+  pointer-events: auto;
+  animation: toast-in 220ms var(--ease-premium);
+  transition: opacity 300ms ease, transform 300ms ease;
+}
+
+.toast-success {
+  border-left-color: var(--black);
+}
+
+.toast-error {
+  border-left-color: var(--ink);
+}
+
+.toast-info {
+  border-left-color: var(--line-strong);
+}
+
+.toast.leaving {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.toast-close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.toast-close:hover {
+  color: var(--ink);
+  background: var(--soft);
+}
+
+
+/* === Flat pages: no card chrome === */
+.card {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.card + .card {
+  margin-top: 28px;
+}
+
+.card-head {
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+
+.card-title {
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+
+.empty {
+  border: 0;
+  background: transparent;
+  padding: 28px 0;
+}
+
+.empty strong {
+  font-size: 13px;
+}
+
+
+/* === Rule preview === */
+.rule-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  font-size: 12px;
+}
+
+.rule-preview span {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rule-preview code {
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+

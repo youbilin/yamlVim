@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
 
 import { errorMessage } from '../api';
 import { useApp } from '../store/app';
+import { toast } from '../store/toast';
 import type { CoreProbe } from '../types';
 
 function ProbeResult({ probe }: { probe: CoreProbe }) {
@@ -21,7 +22,6 @@ function ProbeResult({ probe }: { probe: CoreProbe }) {
         </div>
         <span className="mono">{probe.version ?? 'unknown version'}</span>
       </div>
-      {probe.reason ? <p className="notice notice-warn">{probe.reason}</p> : null}
       {probe.output ? (
         <details className="probe-output">
           <summary>探测输出</summary>
@@ -38,16 +38,20 @@ export function CorePage() {
   const setCorePath = useApp((state) => state.setCorePath);
   const runProbe = useApp((state) => state.runProbe);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
 
   const handleProbe = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    setError('');
     try {
       await runProbe();
+      const result = useApp.getState().probe;
+      if (result?.reason) {
+        toast.error(result.reason);
+      } else {
+        toast.success('内核探测完成');
+      }
     } catch (reason) {
-      setError(errorMessage(reason));
+      toast.error(errorMessage(reason));
     } finally {
       setBusy(false);
     }
@@ -72,8 +76,6 @@ export function CorePage() {
             {busy ? '探测中…' : '探测'}
           </button>
         </form>
-        {error ? <p className="notice notice-warn">{error}</p> : null}
-        <p className="hint">安全模式 · 只探测，不启动或修改 mihomo</p>
       </div>
 
       {probe ? <ProbeResult probe={probe} /> : null}

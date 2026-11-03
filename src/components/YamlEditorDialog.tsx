@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Save } from 'lucide-react';
 
 import { Dialog } from './Dialog';
+import { toast } from '../store/toast';
 
 interface YamlEditorDialogProps {
   title: string;
@@ -13,16 +14,14 @@ interface YamlEditorDialogProps {
 export function YamlEditorDialog({ title, value, onSave, onClose }: YamlEditorDialogProps) {
   const [yaml, setYaml] = useState(value);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    setError('');
     try {
       await onSave(yaml);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      toast.error(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setBusy(false);
     }
@@ -42,7 +41,6 @@ export function YamlEditorDialog({ title, value, onSave, onClose }: YamlEditorDi
               autoFocus
             />
           </label>
-          {error ? <p className="notice notice-warn">{error}</p> : null}
         </div>
         <div className="dialog-foot">
           <button className="btn btn-primary" type="submit" disabled={busy || !yaml.trim()}>

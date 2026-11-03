@@ -23,8 +23,9 @@ import {
 } from 'react-router-dom';
 
 import { isTauriRuntime } from './api';
+import { CoreDrawer } from './components/CoreDrawer';
 import { ImportDialog } from './components/ImportDialog';
-import { CorePage } from './pages/CorePage';
+import { ToastViewport } from './components/ToastViewport';
 import { DnsPage } from './pages/DnsPage';
 import { ExitsPage } from './pages/ExitsPage';
 import { ChainsPage } from './pages/ChainsPage';
@@ -34,11 +35,9 @@ import { LivePage } from './pages/LivePage';
 import { NodesPage } from './pages/NodesPage';
 import { RulesPage } from './pages/RulesPage';
 import { useImportDialog } from './store/dialogs';
-import type { CoreProbe } from './types';
 import { useApp } from './store/app';
 
 const navItems = [
-  { to: '/core', label: '内核', icon: Cpu },
   { to: '/live', label: '实时连接', icon: Activity },
   { to: '/nodes', label: '节点', icon: Server },
   { to: '/exits', label: '出口', icon: Layers },
@@ -50,7 +49,6 @@ const navItems = [
 ];
 
 const routeTitles: Record<string, string> = {
-  '/core': '内核',
   '/live': '实时连接',
   '/nodes': '节点',
   '/exits': '出口',
@@ -65,13 +63,6 @@ function currentTitle(pathname: string): string {
   return routeTitles[pathname] ?? 'YamlVim';
 }
 
-function coreChip(probe: CoreProbe | null) {
-  if (!probe) return { className: 'chip chip-muted', label: '未探测' };
-  if (probe.kind === 'managed') return { className: 'chip chip-managed', label: 'Managed' };
-  if (probe.kind === 'attach-only') return { className: 'chip chip-attach', label: 'Attach-only' };
-  return { className: 'chip chip-unusable', label: 'Unusable' };
-}
-
 function Shell() {
   const location = useLocation();
   const load = useApp((state) => state.load);
@@ -80,8 +71,15 @@ function Shell() {
   const [collapsed, setCollapsed] = useState(() => {
     return window.localStorage.getItem('yamlvim.sidebar') === 'collapsed';
   });
-  const chip = coreChip(probe);
+  const [coreOpen, setCoreOpen] = useState(false);
   const browser = !isTauriRuntime();
+  const dotClass = probe
+    ? probe.kind === 'managed'
+      ? 'managed'
+      : probe.kind === 'attach-only'
+        ? 'attach'
+        : 'bad'
+    : 'idle';
 
   useEffect(() => {
     void load();
@@ -123,7 +121,6 @@ function Shell() {
         </div>
 
         <nav className="nav">
-          <span className="nav-label">WORKSPACE</span>
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -151,29 +148,40 @@ function Shell() {
               导入
             </button>
             {browser ? <span className="badge">浏览器预览</span> : null}
-            <span className={chip.className}>{chip.label}</span>
+            <button
+              className="btn btn-icon core-button"
+              type="button"
+              onClick={() => setCoreOpen(true)}
+              aria-label="内核与连接"
+              title="内核与连接"
+            >
+              <Cpu size={18} />
+              <span className={`core-dot ${dotClass}`} />
+            </button>
           </div>
         </header>
 
         <div className="content">
           <Routes>
-            <Route path="/" element={<Navigate to="/core" replace />} />
-            <Route path="/core" element={<CorePage />} />
-            <Route path="/dns" element={<DnsPage />} />
+            <Route path="/" element={<Navigate to="/live" replace />} />
+            <Route path="/core" element={<Navigate to="/live" replace />} />
+            <Route path="/settings" element={<Navigate to="/live" replace />} />
             <Route path="/config" element={<Navigate to="/export" replace />} />
-            <Route path="/settings" element={<Navigate to="/core" replace />} />
             <Route path="/live" element={<LivePage />} />
+            <Route path="/dns" element={<DnsPage />} />
             <Route path="/nodes" element={<NodesPage />} />
             <Route path="/exits" element={<ExitsPage />} />
             <Route path="/chains" element={<ChainsPage />} />
             <Route path="/rules" element={<RulesPage />} />
             <Route path="/export" element={<ExportPage />} />
             <Route path="/files" element={<FilesPage />} />
-            <Route path="*" element={<Navigate to="/core" replace />} />
+            <Route path="*" element={<Navigate to="/live" replace />} />
           </Routes>
         </div>
       </main>
       <ImportDialog />
+      <CoreDrawer open={coreOpen} onClose={() => setCoreOpen(false)} />
+      <ToastViewport />
     </div>
   );
 }

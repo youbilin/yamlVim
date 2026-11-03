@@ -12,6 +12,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Select } from '../components/Select';
 import { YamlEditorDialog } from '../components/YamlEditorDialog';
 import { asRecord, asText } from '../lib/workspace';
+import { toast } from '../store/toast';
 import { useWorkspaceData } from '../store/workspace';
 
 interface EditingChain {
@@ -21,14 +22,12 @@ interface EditingChain {
 
 export function ChainsPage() {
   const view = useWorkspaceData((state) => state.view);
-  const error = useWorkspaceData((state) => state.error);
   const load = useWorkspaceData((state) => state.load);
   const [baseName, setBaseName] = useState('');
   const [dialer, setDialer] = useState('');
   const [name, setName] = useState('');
   const [editing, setEditing] = useState<EditingChain | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -46,14 +45,13 @@ export function ChainsPage() {
 
   const create = async () => {
     setBusy(true);
-    setMessage('');
     try {
       await createChainNode(baseName, dialer, name.trim() || null);
       await load();
-      setMessage('链路节点已创建');
+      toast.success('链路节点已创建');
       setName('');
     } catch (reason) {
-      setMessage(errorMessage(reason));
+      toast.error(errorMessage(reason));
     } finally {
       setBusy(false);
     }
@@ -64,7 +62,7 @@ export function ChainsPage() {
       const yaml = await getNodeYaml(nodeName);
       setEditing({ name: nodeName, yaml });
     } catch (reason) {
-      setMessage(errorMessage(reason));
+      toast.error(errorMessage(reason));
     }
   };
 
@@ -73,15 +71,19 @@ export function ChainsPage() {
     await updateNodeYaml(editing.name, yaml);
     await load();
     setEditing(null);
-    setMessage('链路节点已保存');
+    toast.success('链路节点已保存');
   };
 
   const confirmDelete = async () => {
     if (!deleting) return;
-    await deleteNode(deleting);
-    await load();
-    setDeleting(null);
-    setMessage('链路节点已删除');
+    try {
+      await deleteNode(deleting);
+      await load();
+      setDeleting(null);
+      toast.success('链路节点已删除');
+    } catch (reason) {
+      toast.error(errorMessage(reason));
+    }
   };
 
   return (
@@ -136,8 +138,6 @@ export function ChainsPage() {
             创建
           </button>
         </div>
-        {error ? <p className="notice notice-info">{error}</p> : null}
-        {message ? <p className="notice notice-ok">{message}</p> : null}
       </div>
 
       <div className="card">

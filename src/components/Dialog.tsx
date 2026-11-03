@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -17,7 +18,7 @@ export function Dialog({ title, onClose, children }: DialogProps) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       className="dialog-backdrop"
       role="presentation"
@@ -34,6 +35,7 @@ export function Dialog({ title, onClose, children }: DialogProps) {
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

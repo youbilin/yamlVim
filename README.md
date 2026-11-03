@@ -17,6 +17,8 @@ Standalone mihomo routing and DNS workbench. See [PLAN.md](PLAN.md) for the desi
   as a fresh workspace for a new editing session.
 - **Live page**: read-only attach to a running mihomo controller; lists connections,
   switches Selector groups, runs delay tests and supports DNS query/cache flush.
+- **Topbar core drawer**: the Cpu button opens a right-side drawer with mihomo probe
+  and controller settings; the Live page remains a full page in the sidebar.
 - **Safe mode**: no core start/stop, no profile reload, no writes to another client.
   Selector switches and cache flushes are explicit runtime actions.
 - **DNS**: collapsible raw DNS/hosts YAML editor plus a visual override form;

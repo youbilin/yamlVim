@@ -3,8 +3,9 @@ import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from 'lucide-react';
 
 import { saveRules } from '../api';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { YamlEditorDialog } from '../components/YamlEditorDialog';
-import { asText } from '../lib/workspace';
+import { RuleDialog } from '../components/RuleDialog';
+import { asRecord, asText } from '../lib/workspace';
+import { toast } from '../store/toast';
 import { useWorkspaceData } from '../store/workspace';
 
 interface EditingRule {
@@ -14,11 +15,9 @@ interface EditingRule {
 
 export function RulesPage() {
   const view = useWorkspaceData((state) => state.view);
-  const error = useWorkspaceData((state) => state.error);
   const load = useWorkspaceData((state) => state.load);
   const [editing, setEditing] = useState<EditingRule | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
-  const [message, setMessage] = useState('');
 
   useEffect(() => {
     void load();
@@ -26,20 +25,23 @@ export function RulesPage() {
 
   const rules = (view?.rules ?? []).map((rule) => asText(rule) || String(rule));
   const ruleSets = Object.keys(view?.ruleProviders ?? {});
+  const targets = (view?.exits ?? [])
+    .map((exit) => asText(asRecord(exit).name))
+    .filter((value): value is string => Boolean(value));
 
   const persist = async (next: string[]) => {
     await saveRules(next);
     await load();
-    setMessage('规则已保存');
+    toast.success('规则已保存');
   };
 
-  const saveRule = async (value: string) => {
+  const saveRule = async (rule: string) => {
     if (!editing) return;
     const next = [...rules];
     if (editing.index === null) {
-      next.push(value);
+      next.push(rule);
     } else {
-      next[editing.index] = value;
+      next[editing.index] = rule;
     }
     await persist(next);
     setEditing(null);
@@ -50,13 +52,21 @@ export function RulesPage() {
     if (target < 0 || target >= rules.length) return;
     const next = [...rules];
     [next[index], next[target]] = [next[target], next[index]];
-    await persist(next);
+    try {
+      await persist(next);
+    } catch {
+      toast.error('规则排序保存失败');
+    }
   };
 
   const confirmDelete = async () => {
     if (deleting === null) return;
-    await persist(rules.filter((_, index) => index !== deleting));
-    setDeleting(null);
+    try {
+      await persist(rules.filter((_, index) => index !== deleting));
+      setDeleting(null);
+    } catch {
+      toast.error('规则删除失败');
+    }
   };
 
   return (
@@ -64,21 +74,17 @@ export function RulesPage() {
       <div className="card">
         <div className="card-head">
           <div className="card-title-row">
-            <h2 className="card-title">规则</h2>
-            <span className="chip chip-muted">{view ? `${view.ruleCount}` : '—'}</span>
+            <span className="chip chip-muted">{view ? `${view.ruleCount} 条规则` : '—'}</span>
           </div>
           <button
             className="btn btn-primary"
             type="button"
-            onClick={() => setEditing({ index: null, value: 'DOMAIN-SUFFIX,example.com,DIRECT' })}
+            onClick={() => setEditing({ index: null, value: '' })}
           >
             <Plus size={15} />
             新增规则
           </button>
         </div>
-
-        {error ? <p className="notice notice-info">{error}</p> : null}
-        {message ? <p className="notice notice-ok">{message}</p> : null}
 
         {rules.length ? (
           <div className="data-list">
@@ -148,9 +154,9 @@ export function RulesPage() {
       </div>
 
       {editing ? (
-        <YamlEditorDialog
-          title={editing.index === null ? '新增规则' : '编辑规则'}
-          value={editing.value}
+        <RuleDialog
+          initial={editing.index === null ? null : editing.value}
+          targets={targets}
           onSave={saveRule}
           onClose={() => setEditing(null)}
         />
