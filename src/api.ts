@@ -277,32 +277,6 @@ export interface RuleCatalogItem {
   popular: boolean;
 }
 
-export async function fetchRuleCatalog(query: string): Promise<RuleCatalogItem[]> {
-  if (!isTauriRuntime()) {
-    return [
-      {
-        slug: 'openai',
-        providerName: 'geosite-openai',
-        kind: 'geosite',
-        behavior: 'domain',
-        url: '',
-        format: 'mrs',
-        popular: true,
-      },
-      {
-        slug: 'netflix',
-        providerName: 'geosite-netflix',
-        kind: 'geosite',
-        behavior: 'domain',
-        url: '',
-        format: 'mrs',
-        popular: true,
-      },
-    ];
-  }
-  return invoke<RuleCatalogItem[]>('fetch_rule_catalog', { query });
-}
-
 export async function addRuleSets(
   items: RuleCatalogItem[],
   target: string,

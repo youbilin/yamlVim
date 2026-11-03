@@ -13,8 +13,9 @@ Standalone mihomo routing and DNS workbench. See [PLAN.md](PLAN.md) for the desi
   nodes can be disabled, renamed or removed with group references normalized.
   Rule and exit creation use right-side sheets with node selection, presets and
   batch input.
-- **Online rule catalog**: the Rules sheet searches MetaCubeX/meta-rules-dat on
-  GitHub and adds http `.mrs` providers plus matching `RULE-SET` rules.
+- **Rule catalog**: the Rules sheet bundles the MetaCubeX/meta-rules-dat catalog
+  with Chinese names, descriptions and categories, searches locally (for example
+  `抖音`), and adds http `.mrs` providers plus matching `RULE-SET` rules.
 - **Export page**: the full YAML is editable, `mihomo -t` can validate it, a line
   diff compares it with the latest export, and a new timestamped YAML is written.
 - **Files page**: lists every exported YAML, previews it, deletes it, or loads it

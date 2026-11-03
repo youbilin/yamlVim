@@ -1,8 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Check, Layers, ListPlus, PencilLine, Search, Sparkles } from 'lucide-react';
 
-import { errorMessage, fetchRuleCatalog } from '../api';
+import { errorMessage } from '../api';
 import type { RuleCatalogItem } from '../api';
+import {
+  CATALOG_BY_ID,
+  RULE_CATALOG,
+  RULE_COMBOS,
+  type RuleCatalogEntry,
+  type RuleCombo,
+} from '../data/rule-catalog';
 import { Select } from './Select';
 import { SideSheet } from './SideSheet';
 import { toast } from '../store/toast';
@@ -23,63 +30,6 @@ const RULE_TYPES = [
 
 const IP_TYPES = new Set(['IP-CIDR', 'IP-CIDR6', 'SRC-IP-CIDR']);
 
-interface Preset {
-  id: string;
-  name: string;
-  type: string;
-  value: string;
-  target?: string;
-  hint?: string;
-}
-
-const PRESETS: Preset[] = [
-  { id: 'openai', name: 'OpenAI', type: 'DOMAIN-SUFFIX', value: 'openai.com' },
-  { id: 'chatgpt', name: 'ChatGPT', type: 'DOMAIN-SUFFIX', value: 'chatgpt.com' },
-  { id: 'claude', name: 'Claude', type: 'DOMAIN-SUFFIX', value: 'anthropic.com' },
-  { id: 'gemini', name: 'Gemini', type: 'DOMAIN-SUFFIX', value: 'gemini.google.com' },
-  { id: 'github', name: 'GitHub', type: 'DOMAIN-SUFFIX', value: 'github.com' },
-  { id: 'google', name: 'Google', type: 'DOMAIN-SUFFIX', value: 'google.com' },
-  { id: 'youtube', name: 'YouTube', type: 'DOMAIN-SUFFIX', value: 'youtube.com' },
-  { id: 'telegram', name: 'Telegram', type: 'DOMAIN-SUFFIX', value: 'telegram.org' },
-  { id: 'x', name: 'X / Twitter', type: 'DOMAIN-SUFFIX', value: 'x.com' },
-  { id: 'netflix', name: 'Netflix', type: 'DOMAIN-SUFFIX', value: 'netflix.com' },
-  { id: 'spotify', name: 'Spotify', type: 'DOMAIN-SUFFIX', value: 'spotify.com' },
-  { id: 'apple', name: 'Apple', type: 'DOMAIN-SUFFIX', value: 'apple.com' },
-  { id: 'microsoft', name: 'Microsoft', type: 'DOMAIN-SUFFIX', value: 'microsoft.com' },
-  {
-    id: 'ads',
-    name: '广告拦截',
-    type: 'GEOSITE',
-    value: 'category-ads-all',
-    target: 'REJECT',
-    hint: '推荐 REJECT',
-  },
-  {
-    id: 'lan',
-    name: '局域网直连',
-    type: 'GEOSITE',
-    value: 'private',
-    target: 'DIRECT',
-    hint: '推荐 DIRECT',
-  },
-  {
-    id: 'cn',
-    name: '中国大陆直连',
-    type: 'GEOIP',
-    value: 'CN',
-    target: 'DIRECT',
-    hint: '推荐 DIRECT',
-  },
-  {
-    id: 'final',
-    name: '最终兜底',
-    type: 'MATCH',
-    value: '',
-    target: 'DIRECT',
-    hint: '通常放最后',
-  },
-];
-
 interface RuleDraft {
   type: string;
   value: string;
@@ -96,14 +46,10 @@ interface RuleSheetProps {
 }
 
 function parseRule(rule: string | null): RuleDraft {
-  if (!rule) {
-    return { type: 'DOMAIN-SUFFIX', value: '', target: 'DIRECT', noResolve: false };
-  }
+  if (!rule) return { type: 'DOMAIN-SUFFIX', value: '', target: 'DIRECT', noResolve: false };
   const parts = rule.split(',').map((part) => part.trim());
   const type = parts[0] || 'DOMAIN-SUFFIX';
-  if (type === 'MATCH') {
-    return { type, value: '', target: parts[1] || 'DIRECT', noResolve: false };
-  }
+  if (type === 'MATCH') return { type, value: '', target: parts[1] || 'DIRECT', noResolve: false };
   return {
     type,
     value: parts[1] || '',
@@ -113,7 +59,7 @@ function parseRule(rule: string | null): RuleDraft {
 }
 
 function buildRule(draft: RuleDraft): string {
-  if (draft.type === 'MATCH') return `MATCH,${draft.target}`;
+  if (draft.type === 'MATCH') return ['MATCH', draft.target].join(',');
   return [
     draft.type,
     draft.value.trim(),
@@ -124,31 +70,80 @@ function buildRule(draft: RuleDraft): string {
     .join(',');
 }
 
-function presetRule(preset: Preset, target: string): string {
-  const resolved = preset.target ?? target;
-  if (preset.type === 'MATCH') return `MATCH,${resolved}`;
-  return [preset.type, preset.value, resolved].filter(Boolean).join(',');
+function catalogItem(entry: RuleCatalogEntry): RuleCatalogItem {
+  return {
+    slug: entry.slug,
+    providerName: entry.providerName,
+    kind: entry.kind,
+    behavior: entry.behavior,
+    url: entry.url,
+    format: entry.format,
+    popular: entry.popular,
+  };
 }
 
 export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: RuleSheetProps) {
   const targetOptions = Array.from(new Set(['DIRECT', 'REJECT', ...targets]));
   const defaultTarget =
     targetOptions.find((target) => target !== 'DIRECT' && target !== 'REJECT') ?? 'DIRECT';
-  const [tab, setTab] = useState<'presets' | 'manual' | 'batch' | 'rulesets'>(
-    initial ? 'manual' : 'presets',
+  const [tab, setTab] = useState<'combos' | 'catalog' | 'manual' | 'batch'>(
+    initial ? 'manual' : 'combos',
   );
   const [draft, setDraft] = useState<RuleDraft>(() => parseRule(initial));
   const [presetTarget, setPresetTarget] = useState(defaultTarget);
-  const [selectedPresets, setSelectedPresets] = useState<Set<string>>(new Set());
-  const [batch, setBatch] = useState('');
-  const [catalogQuery, setCatalogQuery] = useState('');
-  const [catalog, setCatalog] = useState<RuleCatalogItem[]>([]);
-  const [catalogBusy, setCatalogBusy] = useState(false);
   const [selectedCatalog, setSelectedCatalog] = useState<Set<string>>(new Set());
+  const [activeCombo, setActiveCombo] = useState('');
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('');
+  const [batch, setBatch] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const togglePreset = (id: string) => {
-    setSelectedPresets((current) => {
+  const categories = useMemo(
+    () =>
+      [...new Set(RULE_CATALOG.map((entry) => entry.category))].sort((left, right) =>
+        left.localeCompare(right, 'zh-Hans-CN'),
+      ),
+    [],
+  );
+
+  const filteredCatalog = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return RULE_CATALOG.filter((entry) => {
+      if (category && entry.category !== category) return false;
+      if (!term) return true;
+      return (
+        entry.nameZh.toLowerCase().includes(term) ||
+        entry.nameEn.toLowerCase().includes(term) ||
+        entry.slug.toLowerCase().includes(term) ||
+        entry.category.toLowerCase().includes(term) ||
+        entry.descriptionZh.toLowerCase().includes(term)
+      );
+    })
+      .sort((left, right) => {
+        if (left.popular !== right.popular) return left.popular ? -1 : 1;
+        return left.nameZh.localeCompare(right.nameZh, 'zh-Hans-CN');
+      })
+      .slice(0, 300);
+  }, [query, category]);
+
+  const selectedItems = useMemo(
+    () =>
+      [...selectedCatalog]
+        .map((id) => CATALOG_BY_ID.get(id))
+        .filter((entry): entry is RuleCatalogEntry => Boolean(entry)),
+    [selectedCatalog],
+  );
+
+  const chooseCombo = (combo: RuleCombo) => {
+    setSelectedCatalog(new Set(combo.entries));
+    setActiveCombo(combo.id);
+    if (combo.id === 'ads') setPresetTarget('REJECT');
+    else if (combo.id === 'cn-direct' || combo.id === 'private') setPresetTarget('DIRECT');
+  };
+
+  const toggleCatalog = (id: string) => {
+    setActiveCombo('');
+    setSelectedCatalog((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -156,31 +151,19 @@ export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: 
     });
   };
 
-  const searchCatalog = async (query: string) => {
-    setCatalogBusy(true);
+  const addCatalog = async () => {
+    if (!selectedItems.length) {
+      toast.error('请选择规则集');
+      return;
+    }
+    setBusy(true);
     try {
-      setCatalog(await fetchRuleCatalog(query));
+      await onAddRuleSets(selectedItems.map(catalogItem), presetTarget);
     } catch (reason) {
       toast.error(errorMessage(reason));
     } finally {
-      setCatalogBusy(false);
+      setBusy(false);
     }
-  };
-
-  useEffect(() => {
-    if (tab === 'rulesets' && !catalog.length) {
-      void searchCatalog('');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
-
-  const toggleCatalog = (providerName: string) => {
-    setSelectedCatalog((current) => {
-      const next = new Set(current);
-      if (next.has(providerName)) next.delete(providerName);
-      else next.add(providerName);
-      return next;
-    });
   };
 
   const submit = async (rules: string[]) => {
@@ -198,34 +181,11 @@ export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: 
     }
   };
 
-  const presetRules = [...selectedPresets].map((id) => {
-    const preset = PRESETS.find((item) => item.id === id);
-    return preset ? presetRule(preset, presetTarget) : '';
-  }).filter(Boolean);
-
   const batchRules = batch
     .replace(String.fromCharCode(13), '')
     .split(String.fromCharCode(10))
     .map((line) => line.trim())
     .filter(Boolean);
-
-  const selectedCatalogItems = catalog.filter((item) => selectedCatalog.has(item.providerName));
-
-
-  const addCatalog = async () => {
-    if (!selectedCatalogItems.length) {
-      toast.error('请选择规则集');
-      return;
-    }
-    setBusy(true);
-    try {
-      await onAddRuleSets(selectedCatalogItems, presetTarget);
-    } catch (reason) {
-      toast.error(errorMessage(reason));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const saveManual = () => {
     if (draft.type !== 'MATCH' && !draft.value.trim()) {
@@ -235,17 +195,33 @@ export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: 
     void submit([buildRule(draft)]);
   };
 
+  const activeComboSelected =
+    Boolean(activeCombo) &&
+    Boolean(
+      RULE_COMBOS.find((combo) => combo.id === activeCombo)?.entries.every((id) =>
+        selectedCatalog.has(id),
+      ),
+    );
+
   return (
     <SideSheet title={initial ? '编辑规则' : '新增规则'} onClose={onClose}>
       {!initial ? (
         <div className="sheet-tabs">
           <button
-            className={tab === 'presets' ? 'sheet-tab active' : 'sheet-tab'}
+            className={tab === 'combos' ? 'sheet-tab active' : 'sheet-tab'}
             type="button"
-            onClick={() => setTab('presets')}
+            onClick={() => setTab('combos')}
           >
             <Sparkles size={14} />
-            常用规则
+            推荐规则集
+          </button>
+          <button
+            className={tab === 'catalog' ? 'sheet-tab active' : 'sheet-tab'}
+            type="button"
+            onClick={() => setTab('catalog')}
+          >
+            <Layers size={14} />
+            全部规则集
           </button>
           <button
             className={tab === 'manual' ? 'sheet-tab active' : 'sheet-tab'}
@@ -263,58 +239,127 @@ export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: 
             <ListPlus size={14} />
             批量
           </button>
-          <button
-            className={tab === 'rulesets' ? 'sheet-tab active' : 'sheet-tab'}
-            type="button"
-            onClick={() => setTab('rulesets')}
-          >
-            <Layers size={14} />
-            规则集
-          </button>
         </div>
       ) : null}
 
-      {tab === 'presets' ? (
+      {tab === 'combos' ? (
         <div className="sheet-section">
           <label className="field">
-            <span>统一目标</span>
+            <span>目标</span>
             <Select
               value={presetTarget}
               options={targetOptions.map((value) => ({ value, label: value }))}
               onChange={setPresetTarget}
-              ariaLabel="规则目标"
+              ariaLabel="规则集目标"
             />
           </label>
-          <div className="preset-list">
-            {PRESETS.map((preset) => (
-              <button
-                type="button"
-                key={preset.id}
-                className={`preset-row ${selectedPresets.has(preset.id) ? 'selected' : ''}`}
-                onClick={() => togglePreset(preset.id)}
-              >
-                <span className="preset-check">
-                  {selectedPresets.has(preset.id) ? <Check size={12} /> : null}
-                </span>
-                <span className="preset-main">
-                  <strong>{preset.name}</strong>
-                  <span>
-                    {preset.type}
-                    {preset.value ? ` · ${preset.value}` : ''}
-                  </span>
-                </span>
-                {preset.hint ? <span className="chip chip-muted">{preset.hint}</span> : null}
-              </button>
-            ))}
+          <div className="combo-grid">
+            {RULE_COMBOS.map((combo) => {
+              const active = activeCombo === combo.id && activeComboSelected;
+              return (
+                <button
+                  key={combo.id}
+                  type="button"
+                  className={active ? 'combo-card active' : 'combo-card'}
+                  onClick={() => chooseCombo(combo)}
+                >
+                  <span className="combo-category">{combo.category}</span>
+                  <strong>{combo.nameZh}</strong>
+                  <p>{combo.description}</p>
+                  <span className="combo-count">{combo.entryCount} 个规则集</span>
+                </button>
+              );
+            })}
           </div>
           <div className="sheet-actions">
+            <span className="sheet-foot-note">已选 {selectedItems.length} 个规则集</span>
             <button
               className="btn btn-primary"
               type="button"
-              onClick={() => void submit(presetRules)}
-              disabled={busy || !presetRules.length}
+              onClick={() => void addCatalog()}
+              disabled={busy || !selectedItems.length}
             >
-              {presetRules.length ? `添加 ${presetRules.length} 条规则` : '添加规则'}
+              {selectedItems.length
+                ? '添加 ' + selectedItems.length + ' 个规则集'
+                : '添加规则集'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {tab === 'catalog' ? (
+        <div className="sheet-section">
+          <div className="catalog-search">
+            <input
+              className="input"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索中文名、英文名或站点，例如：抖音、Google、广告"
+              spellCheck={false}
+            />
+            <button className="btn btn-ghost" type="button">
+              <Search size={14} />
+              搜索
+            </button>
+          </div>
+          <label className="field">
+            <span>分类</span>
+            <Select
+              value={category}
+              options={[
+                { value: '', label: '全部分类' },
+                ...categories.map((value) => ({ value, label: value })),
+              ]}
+              onChange={setCategory}
+              ariaLabel="规则集分类"
+            />
+          </label>
+          <label className="field">
+            <span>目标</span>
+            <Select
+              value={presetTarget}
+              options={targetOptions.map((value) => ({ value, label: value }))}
+              onChange={setPresetTarget}
+              ariaLabel="规则集目标"
+            />
+          </label>
+          <div className="preset-list">
+            {filteredCatalog.map((entry) => (
+              <button
+                type="button"
+                key={entry.id}
+                className={
+                  selectedCatalog.has(entry.id) ? 'preset-row selected' : 'preset-row'
+                }
+                onClick={() => toggleCatalog(entry.id)}
+              >
+                <span className="preset-check">
+                  {selectedCatalog.has(entry.id) ? <Check size={12} /> : null}
+                </span>
+                <span className="preset-main">
+                  <strong>
+                    {entry.nameZh}
+                    {entry.popular ? <span className="catalog-popular">热门</span> : null}
+                  </strong>
+                  <span>
+                    {entry.nameEn} · {entry.kind} · {entry.descriptionZh}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+          {!filteredCatalog.length ? <div className="catalog-empty">没有匹配的规则集</div> : null}
+          <div className="sheet-actions">
+            <span className="sheet-foot-note">已选 {selectedItems.length} 个规则集</span>
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={() => void addCatalog()}
+              disabled={busy || !selectedItems.length}
+            >
+              {selectedItems.length
+                ? '添加 ' + selectedItems.length + ' 个规则集'
+                : '添加规则集'}
             </button>
           </div>
         </div>
@@ -357,13 +402,7 @@ export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: 
                 onChange={(event) =>
                   setDraft((current) => ({ ...current, value: event.target.value }))
                 }
-                placeholder={
-                  draft.type === 'GEOIP'
-                    ? 'CN'
-                    : draft.type === 'RULE-SET'
-                      ? 'rule-set 名称'
-                      : 'example.com'
-                }
+                placeholder="example.com"
                 spellCheck={false}
                 autoFocus
               />
@@ -402,7 +441,7 @@ export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: 
               value={batch}
               onChange={(event) => setBatch(event.target.value)}
               rows={12}
-              placeholder={'DOMAIN-SUFFIX,openai.com,DIRECT' + String.fromCharCode(10) + 'GEOIP,CN,DIRECT' + String.fromCharCode(10) + 'MATCH,DIRECT'}
+              placeholder="DOMAIN-SUFFIX,openai.com,DIRECT / GEOIP,CN,DIRECT / MATCH,DIRECT"
               spellCheck={false}
             />
           </label>
@@ -413,84 +452,9 @@ export function RuleSheet({ initial, targets, onSave, onAddRuleSets, onClose }: 
               onClick={() => void submit(batchRules)}
               disabled={busy || !batchRules.length}
             >
-              {batchRules.length ? `添加 ${batchRules.length} 条规则` : '添加规则'}
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {tab === 'rulesets' ? (
-        <div className="sheet-section">
-          <div className="catalog-search">
-            <input
-              className="input mono"
-              value={catalogQuery}
-              onChange={(event) => setCatalogQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  void searchCatalog(catalogQuery);
-                }
-              }}
-              placeholder="搜索 MetaCubeX 规则集，例如 openai、netflix、cn"
-              spellCheck={false}
-            />
-            <button
-              className="btn btn-ghost"
-              type="button"
-              onClick={() => void searchCatalog(catalogQuery)}
-              disabled={catalogBusy}
-            >
-              <Search size={14} />
-              搜索
-            </button>
-          </div>
-          <label className="field">
-            <span>目标</span>
-            <Select
-              value={presetTarget}
-              options={targetOptions.map((value) => ({ value, label: value }))}
-              onChange={setPresetTarget}
-              ariaLabel="规则集目标"
-            />
-          </label>
-          {catalogBusy ? (
-            <div className="catalog-loading">在线加载 MetaCubeX 规则集…</div>
-          ) : null}
-          <div className="preset-list">
-            {catalog.map((item) => (
-              <button
-                type="button"
-                key={item.providerName}
-                className={`preset-row ${selectedCatalog.has(item.providerName) ? 'selected' : ''}`}
-                onClick={() => toggleCatalog(item.providerName)}
-              >
-                <span className="preset-check">
-                  {selectedCatalog.has(item.providerName) ? <Check size={12} /> : null}
-                </span>
-                <span className="preset-main">
-                  <strong>{item.slug}</strong>
-                  <span>
-                    {item.kind} · {item.behavior} · {item.format}
-                  </span>
-                </span>
-                {item.popular ? <span className="chip chip-muted">热门</span> : null}
-              </button>
-            ))}
-          </div>
-          {!catalogBusy && !catalog.length ? (
-            <div className="catalog-empty">没有匹配的规则集，换个关键词或检查网络。</div>
-          ) : null}
-          <div className="sheet-actions">
-            <button
-              className="btn btn-primary"
-              type="button"
-              onClick={() => void addCatalog()}
-              disabled={busy || !selectedCatalogItems.length}
-            >
-              {selectedCatalogItems.length
-                ? `添加 ${selectedCatalogItems.length} 个规则集`
-                : '添加规则集'}
+              {batchRules.length
+                ? '添加 ' + batchRules.length + ' 条规则'
+                : '添加规则'}
             </button>
           </div>
         </div>

@@ -2,7 +2,6 @@ use std::collections::BTreeSet;
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -66,14 +65,6 @@ struct RuleCatalogItem {
     format: String,
     popular: bool,
 }
-
-#[derive(Debug, Deserialize)]
-struct GithubCatalogEntry {
-    name: String,
-    download_url: Option<String>,
-}
-
-static RULE_CATALOG_CACHE: OnceLock<Mutex<Option<Vec<RuleCatalogItem>>>> = OnceLock::new();
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1074,100 +1065,6 @@ fn set_nodes_disabled(names: Vec<String>, disabled: bool) -> Result<ConfigStatus
     config_status()
 }
 
-fn fetch_github_catalog(kind: &str) -> Result<Vec<RuleCatalogItem>, String> {
-    let url = format!(
-        "https://api.github.com/repos/MetaCubeX/meta-rules-dat/contents/geo/{kind}?ref=meta"
-    );
-    let response = ureq::get(&url)
-        .set("User-Agent", "YamlVim/0.1")
-        .set("Accept", "application/vnd.github+json")
-        .timeout(Duration::from_secs(25))
-        .call()
-        .map_err(|error| format!("GitHub 请求失败：{error}"))?;
-    let text = response
-        .into_string()
-        .map_err(|error| format!("GitHub 响应读取失败：{error}"))?;
-    let entries: Vec<GithubCatalogEntry> =
-        serde_json::from_str(&text).map_err(|error| format!("规则库解析失败：{error}"))?;
-    let behavior = if kind == "geoip" { "ipcidr" } else { "domain" };
-    let mut items = Vec::new();
-    for entry in entries {
-        let Some(file_name) = entry.name.strip_suffix(".mrs") else {
-            continue;
-        };
-        let Some(url) = entry.download_url else {
-            continue;
-        };
-        let provider_name = format!("{kind}-{file_name}");
-        let popular = matches!(
-            file_name,
-            "openai"
-                | "google"
-                | "github"
-                | "youtube"
-                | "netflix"
-                | "telegram"
-                | "twitter"
-                | "spotify"
-                | "microsoft"
-                | "apple"
-                | "category-ads-all"
-                | "private"
-                | "cn"
-        );
-        items.push(RuleCatalogItem {
-            slug: file_name.to_string(),
-            provider_name,
-            kind: kind.to_string(),
-            behavior: behavior.to_string(),
-            url,
-            format: "mrs".into(),
-            popular,
-        });
-    }
-    Ok(items)
-}
-
-fn meta_catalog(query: &str) -> Result<Vec<RuleCatalogItem>, String> {
-    let cache = RULE_CATALOG_CACHE.get_or_init(|| Mutex::new(None));
-    let mut guard = cache.lock().map_err(|error| error.to_string())?;
-    if guard.is_none() {
-        let mut all = Vec::new();
-        let mut errors = Vec::new();
-        for kind in ["geosite", "geoip"] {
-            match fetch_github_catalog(kind) {
-                Ok(mut items) => all.append(&mut items),
-                Err(error) => errors.push(error),
-            }
-        }
-        if all.is_empty() {
-            return Err(errors.join("；"));
-        }
-        *guard = Some(all);
-    }
-    let query = query.trim().to_lowercase();
-    let mut items = guard.as_ref().cloned().unwrap_or_default();
-    if !query.is_empty() {
-        items
-            .retain(|item| item.slug.to_lowercase().contains(&query) || item.kind.contains(&query));
-    }
-    items.sort_by(|left, right| {
-        right
-            .popular
-            .cmp(&left.popular)
-            .then_with(|| left.slug.cmp(&right.slug))
-    });
-    items.truncate(400);
-    Ok(items)
-}
-
-#[tauri::command]
-async fn fetch_rule_catalog(query: String) -> Result<Vec<RuleCatalogItem>, String> {
-    tauri::async_runtime::spawn_blocking(move || meta_catalog(&query))
-        .await
-        .map_err(|error| error.to_string())?
-}
-
 #[tauri::command]
 fn add_rule_sets(items: Vec<RuleCatalogItem>, target: String) -> Result<ConfigStatus, String> {
     if items.is_empty() {
@@ -1728,7 +1625,6 @@ pub fn run() {
             update_node_yaml,
             delete_nodes,
             set_nodes_disabled,
-            fetch_rule_catalog,
             add_rule_sets,
             delete_node,
             toggle_node,
