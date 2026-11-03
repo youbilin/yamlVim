@@ -997,6 +997,222 @@ fn add_node_yaml(yaml: String) -> Result<ConfigStatus, String> {
     config_status()
 }
 
+fn yaml_mapping(yaml: &str) -> Result<Mapping, String> {
+    let value: serde_yaml::Value = serde_yaml::from_str(yaml).map_err(|error| error.to_string())?;
+    value
+        .as_mapping()
+        .cloned()
+        .ok_or_else(|| "YAML 必须是一个 mapping".to_string())
+}
+
+fn ensure_node_name(mapping: &Mapping) -> Result<String, String> {
+    let name = mapping
+        .get("name")
+        .and_then(serde_yaml::Value::as_str)
+        .ok_or_else(|| "节点缺少 name".to_string())?;
+    if mapping
+        .get("type")
+        .and_then(serde_yaml::Value::as_str)
+        .is_none()
+    {
+        return Err(format!("节点 {name} 缺少 type"));
+    }
+    Ok(name.to_string())
+}
+
+fn replace_group_reference(workspace: &mut Workspace, old_name: &str, new_name: &str) {
+    for group in &mut workspace.proxy_groups {
+        let Some(mapping) = group.as_mapping_mut() else {
+            continue;
+        };
+        if let Some(serde_yaml::Value::Sequence(members)) = mapping.get_mut("proxies") {
+            for member in members {
+                if member.as_str() == Some(old_name) {
+                    *member = serde_yaml::Value::String(new_name.into());
+                }
+            }
+        }
+        if let Some(serde_yaml::Value::Sequence(providers)) = mapping.get_mut("use") {
+            for provider in providers {
+                if provider.as_str() == Some(old_name) {
+                    *provider = serde_yaml::Value::String(new_name.into());
+                }
+            }
+        }
+    }
+    for proxy in &mut workspace.proxies {
+        let Some(mapping) = proxy.as_mapping_mut() else {
+            continue;
+        };
+        if let Some(serde_yaml::Value::String(dialer)) = mapping.get_mut("dialer-proxy") {
+            if dialer == old_name {
+                *dialer = new_name.into();
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn node_yaml(name: String) -> Result<String, String> {
+    let workspace = load_workspace()?;
+    let node = workspace
+        .proxies
+        .iter()
+        .find(|value| proxy_name(value).as_deref() == Some(name.as_str()))
+        .ok_or_else(|| format!("节点不存在：{name}"))?;
+    serde_yaml::to_string(node).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn update_node_yaml(old_name: String, yaml: String) -> Result<ConfigStatus, String> {
+    let mut workspace = load_workspace()?;
+    let new_value =
+        serde_yaml::from_str::<serde_yaml::Value>(&yaml).map_err(|error| error.to_string())?;
+    let mapping = new_value
+        .as_mapping()
+        .cloned()
+        .ok_or_else(|| "节点 YAML 必须是一个 mapping".to_string())?;
+    let new_name = ensure_node_name(&mapping)?;
+    if new_name != old_name
+        && workspace
+            .proxies
+            .iter()
+            .any(|value| proxy_name(value).as_deref() == Some(new_name.as_str()))
+    {
+        return Err(format!("节点 name 重复：{new_name}"));
+    }
+    let index = workspace
+        .proxies
+        .iter()
+        .position(|value| proxy_name(value).as_deref() == Some(old_name.as_str()))
+        .ok_or_else(|| format!("节点不存在：{old_name}"))?;
+    workspace.proxies[index] = serde_yaml::Value::Mapping(mapping);
+    if new_name != old_name {
+        replace_group_reference(&mut workspace, &old_name, &new_name);
+    }
+    workspace.normalize();
+    save_workspace_files(&workspace, Some("node-edit"))?;
+    config_status()
+}
+
+#[tauri::command]
+fn delete_node(name: String) -> Result<ConfigStatus, String> {
+    let mut workspace = load_workspace()?;
+    let before = workspace.proxies.len();
+    workspace
+        .proxies
+        .retain(|value| proxy_name(value).as_deref() != Some(name.as_str()));
+    if workspace.proxies.len() == before {
+        return Err(format!("节点不存在：{name}"));
+    }
+    workspace.normalize();
+    save_workspace_files(&workspace, Some("node-delete"))?;
+    config_status()
+}
+
+#[tauri::command]
+fn toggle_node(name: String, disabled: bool) -> Result<ConfigStatus, String> {
+    let mut workspace = load_workspace()?;
+    let node = workspace
+        .proxies
+        .iter_mut()
+        .find(|value| proxy_name(value).as_deref() == Some(name.as_str()))
+        .ok_or_else(|| format!("节点不存在：{name}"))?;
+    let mapping = node
+        .as_mapping_mut()
+        .ok_or_else(|| "节点不是 mapping".to_string())?;
+    if disabled {
+        mapping.insert(
+            serde_yaml::Value::String("disabled".into()),
+            serde_yaml::Value::Bool(true),
+        );
+    } else {
+        mapping.remove("disabled");
+    }
+    save_workspace_files(&workspace, Some("node-toggle"))?;
+    config_status()
+}
+
+#[tauri::command]
+fn exit_yaml(name: String) -> Result<String, String> {
+    let workspace = load_workspace()?;
+    let group = workspace
+        .proxy_groups
+        .iter()
+        .find(|value| proxy_name(value).as_deref() == Some(name.as_str()))
+        .ok_or_else(|| format!("出口不存在：{name}"))?;
+    serde_yaml::to_string(group).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn save_exit_yaml(original_name: Option<String>, yaml: String) -> Result<ConfigStatus, String> {
+    let mut workspace = load_workspace()?;
+    let new_value =
+        serde_yaml::from_str::<serde_yaml::Value>(&yaml).map_err(|error| error.to_string())?;
+    let mapping = new_value
+        .as_mapping()
+        .cloned()
+        .ok_or_else(|| "出口 YAML 必须是一个 mapping".to_string())?;
+    let new_name = ensure_node_name(&mapping)?;
+    if let Some(original) = &original_name {
+        let index = workspace
+            .proxy_groups
+            .iter()
+            .position(|value| proxy_name(value).as_deref() == Some(original.as_str()))
+            .ok_or_else(|| format!("出口不存在：{original}"))?;
+        if new_name != *original
+            && workspace
+                .proxy_groups
+                .iter()
+                .any(|value| proxy_name(value).as_deref() == Some(new_name.as_str()))
+        {
+            return Err(format!("出口 name 重复：{new_name}"));
+        }
+        workspace.proxy_groups[index] = serde_yaml::Value::Mapping(mapping);
+        if new_name != *original {
+            replace_group_reference(&mut workspace, original, &new_name);
+        }
+    } else {
+        if workspace
+            .proxy_groups
+            .iter()
+            .any(|value| proxy_name(value).as_deref() == Some(new_name.as_str()))
+        {
+            return Err(format!("出口 name 重复：{new_name}"));
+        }
+        workspace
+            .proxy_groups
+            .push(serde_yaml::Value::Mapping(mapping));
+    }
+    workspace.normalize();
+    save_workspace_files(&workspace, Some("exit-edit"))?;
+    config_status()
+}
+
+#[tauri::command]
+fn delete_exit(name: String) -> Result<ConfigStatus, String> {
+    let mut workspace = load_workspace()?;
+    let before = workspace.proxy_groups.len();
+    workspace
+        .proxy_groups
+        .retain(|value| proxy_name(value).as_deref() != Some(name.as_str()));
+    if workspace.proxy_groups.len() == before {
+        return Err(format!("出口不存在：{name}"));
+    }
+    workspace.normalize();
+    save_workspace_files(&workspace, Some("exit-delete"))?;
+    config_status()
+}
+
+#[tauri::command]
+fn save_rules(rules: Vec<String>) -> Result<ConfigStatus, String> {
+    let mut workspace = load_workspace()?;
+    workspace.rules = rules.into_iter().map(serde_yaml::Value::String).collect();
+    workspace.normalize();
+    save_workspace_files(&workspace, Some("rules-edit"))?;
+    config_status()
+}
+
 #[tauri::command]
 async fn controller_get(path: String) -> Result<String, String> {
     let settings = load_settings()?;
@@ -1167,7 +1383,15 @@ pub fn run() {
             list_exports,
             read_export,
             load_export_as_workspace,
-            switch_proxy
+            switch_proxy,
+            node_yaml,
+            update_node_yaml,
+            delete_node,
+            toggle_node,
+            exit_yaml,
+            save_exit_yaml,
+            delete_exit,
+            save_rules
         ])
         .run(tauri::generate_context!())
         .expect("error while running YamlVim");

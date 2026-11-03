@@ -226,6 +226,11 @@ export async function controllerDelay(name: string): Promise<{ name: string; del
   return invoke<{ name: string; delayMs?: number; error?: string }>('controller_delay', { name });
 }
 
+export async function switchProxy(group: string, name: string): Promise<string> {
+  if (!isTauriRuntime()) throw new Error('Browser mode: controller not available.');
+  return invoke<string>('switch_proxy', { group, name });
+}
+
 export async function listExports(): Promise<ExportFile[]> {
   if (!isTauriRuntime()) return [];
   return invoke<ExportFile[]>('list_exports');
@@ -241,6 +246,41 @@ export async function loadExportAsWorkspace(path: string): Promise<ConfigStatus>
     throw new Error('Browser mode cannot load files.');
   }
   return invoke<ConfigStatus>('load_export_as_workspace', { path });
+}
+
+export async function getNodeYaml(name: string): Promise<string> {
+  return invoke<string>('node_yaml', { name });
+}
+
+export async function updateNodeYaml(oldName: string, yaml: string): Promise<ConfigStatus> {
+  return invoke<ConfigStatus>('update_node_yaml', { oldName, yaml });
+}
+
+export async function deleteNode(name: string): Promise<ConfigStatus> {
+  return invoke<ConfigStatus>('delete_node', { name });
+}
+
+export async function toggleNode(name: string, disabled: boolean): Promise<ConfigStatus> {
+  return invoke<ConfigStatus>('toggle_node', { name, disabled });
+}
+
+export async function getExitYaml(name: string): Promise<string> {
+  return invoke<string>('exit_yaml', { name });
+}
+
+export async function saveExitYaml(
+  originalName: string | null,
+  yaml: string,
+): Promise<ConfigStatus> {
+  return invoke<ConfigStatus>('save_exit_yaml', { originalName, yaml });
+}
+
+export async function deleteExit(name: string): Promise<ConfigStatus> {
+  return invoke<ConfigStatus>('delete_exit', { name });
+}
+
+export async function saveRules(rules: string[]): Promise<ConfigStatus> {
+  return invoke<ConfigStatus>('save_rules', { rules });
 }
 
 export async function exportConfig(): Promise<string> {

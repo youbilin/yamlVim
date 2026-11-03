@@ -8,6 +8,7 @@ import {
   getDnsYaml,
   isTauriRuntime,
 } from '../api';
+import { Select } from '../components/Select';
 import { toDnsInput } from '../lib/dns';
 import { useWorkspaceData } from '../store/workspace';
 import type {
@@ -276,18 +277,17 @@ export function DnsPage() {
               </label>
               <label className="field">
                 <span>增强模式</span>
-                <select
-                  className="select"
+                <Select
                   value={draft.settings.enhancedMode}
-                  onChange={(event) =>
-                    updateSettings({
-                      enhancedMode: event.target.value as DnsDraftSettings['enhancedMode'],
-                    })
+                  options={[
+                    { value: 'fake-ip', label: 'fake-ip' },
+                    { value: 'redir-host', label: 'redir-host' },
+                  ]}
+                  onChange={(value) =>
+                    updateSettings({ enhancedMode: value as DnsDraftSettings['enhancedMode'] })
                   }
-                >
-                  <option value="fake-ip">fake-ip</option>
-                  <option value="redir-host">redir-host</option>
-                </select>
+                  ariaLabel="增强模式"
+                />
               </label>
               <label className="field">
                 <span>fake-IP 网段</span>
@@ -409,38 +409,28 @@ export function DnsPage() {
                     onChange={(event) => updateRule(rule.id, { enabled: event.target.checked })}
                     aria-label="启用规则"
                   />
-                  <select
-                    className="select"
+                  <Select
                     value={rule.matchType}
-                    onChange={(event) =>
-                      updateRule(rule.id, { matchType: event.target.value as MatchType })
+                    options={matchOptions}
+                    onChange={(value) =>
+                      updateRule(rule.id, { matchType: value as MatchType })
                     }
-                  >
-                    {matchOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                    ariaLabel="匹配方式"
+                  />
                   <input
                     className="input mono"
                     value={rule.matchValue}
                     onChange={(event) => updateRule(rule.id, { matchValue: event.target.value })}
                     placeholder="example.com"
                   />
-                  <select
-                    className="select"
+                  <Select
                     value={rule.actionType}
-                    onChange={(event) =>
-                      updateRule(rule.id, { actionType: event.target.value as ActionType })
+                    options={actionOptions}
+                    onChange={(value) =>
+                      updateRule(rule.id, { actionType: value as ActionType })
                     }
-                  >
-                    {actionOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                    ariaLabel="动作类型"
+                  />
                   <input
                     className="input mono"
                     value={rule.actionValue}

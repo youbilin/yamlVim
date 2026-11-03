@@ -15,6 +15,7 @@ interface AppStore {
   load: () => Promise<void>;
   setCorePath: (corePath: string) => void;
   setControllerEndpoint: (endpoint: string) => void;
+  setControllerSecret: (secret: string) => void;
   save: () => Promise<void>;
   runProbe: () => Promise<void>;
 }
@@ -40,6 +41,9 @@ export const useApp = create<AppStore>((set, get) => ({
   },
   setControllerEndpoint(endpoint) {
     set((state) => ({ settings: { ...state.settings, controllerEndpoint: endpoint } }));
+  },
+  setControllerSecret(secret) {
+    set((state) => ({ settings: { ...state.settings, controllerSecret: secret } }));
   },
   async save() {
     await saveSettings(get().settings);
