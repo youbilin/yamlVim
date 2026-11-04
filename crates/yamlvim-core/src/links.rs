@@ -185,6 +185,10 @@ fn read_network(value: Option<&str>, warnings: &mut Vec<String>) -> String {
     match network.as_str() {
         "ws" | "websocket" => "ws".to_string(),
         "grpc" => "grpc".to_string(),
+        "xhttp" | "splithttp" => "xhttp".to_string(),
+        "httpupgrade" => "httpupgrade".to_string(),
+        "h2" => "h2".to_string(),
+        "http" => "http".to_string(),
         "tcp" | "none" | "" => "tcp".to_string(),
         _ => {
             warnings.push(format!(
@@ -210,6 +214,24 @@ fn query_params_from_text(text: &str) -> Vec<(String, String)> {
     url::form_urlencoded::parse(text.as_bytes())
         .map(|(key, value)| (key.into_owned(), value.into_owned()))
         .collect()
+}
+
+fn grpc_service(url: &Url) -> Option<String> {
+    query_param(url, "serviceName").or_else(|| query_param(url, "service"))
+}
+
+fn alpn_list(url: &Url) -> Option<Value> {
+    let items: Vec<Value> = query_param(url, "alpn")?
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(|item| Value::String(item.to_string()))
+        .collect();
+    if items.is_empty() {
+        None
+    } else {
+        Some(Value::Array(items))
+    }
 }
 
 fn query_get<'a>(params: &'a [(String, String)], name: &str) -> Option<&'a str> {
@@ -638,11 +660,23 @@ fn parse_url_node(text: &str, kind: &str) -> Result<ParsedShareNode> {
                 }
                 warnings.extend(reality_warnings);
             }
-            let ws_path = query_param(&url, "path")
-                .filter(|value| !value.is_empty())
-                .or_else(|| Some("/".to_string()));
-            let grpc_service =
-                query_param(&url, "serviceName").or_else(|| query_param(&url, "service"));
+            if let Some(alpn) = alpn_list(&url) {
+                extra.insert("alpn".to_string(), alpn);
+            }
+            if network == "xhttp" {
+                if let Some(mode) = query_param(&url, "mode").filter(|value| !value.is_empty()) {
+                    extra.insert("xhttp-mode".to_string(), Value::String(mode));
+                }
+            }
+            let uses_path = matches!(
+                network.as_str(),
+                "ws" | "h2" | "http" | "httpupgrade" | "xhttp"
+            );
+            let uses_host = matches!(
+                network.as_str(),
+                "ws" | "h2" | "http" | "httpupgrade" | "xhttp"
+            );
+            let uses_service = network == "grpc";
             Ok(ParsedShareNode {
                 kind: kind.to_string(),
                 server,
@@ -655,14 +689,18 @@ fn parse_url_node(text: &str, kind: &str) -> Result<ParsedShareNode> {
                 tls,
                 sni,
                 network: network.clone(),
-                path: if network == "ws" { ws_path } else { None },
-                host: if network == "ws" {
+                path: if uses_path {
+                    query_param(&url, "path").filter(|value| !value.is_empty())
+                } else {
+                    None
+                },
+                host: if uses_host {
                     query_param(&url, "host")
                 } else {
                     None
                 },
-                service: if network == "grpc" {
-                    grpc_service
+                service: if uses_service {
+                    grpc_service(&url)
                 } else {
                     None
                 },
@@ -682,11 +720,23 @@ fn parse_url_node(text: &str, kind: &str) -> Result<ParsedShareNode> {
             }
             let mut warnings = warnings;
             let network = read_network(query_param(&url, "type").as_deref(), &mut warnings);
-            let ws_path = query_param(&url, "path")
-                .filter(|value| !value.is_empty())
-                .or_else(|| Some("/".to_string()));
-            let grpc_service =
-                query_param(&url, "serviceName").or_else(|| query_param(&url, "service"));
+            if let Some(alpn) = alpn_list(&url) {
+                extra.insert("alpn".to_string(), alpn);
+            }
+            if network == "xhttp" {
+                if let Some(mode) = query_param(&url, "mode").filter(|value| !value.is_empty()) {
+                    extra.insert("xhttp-mode".to_string(), Value::String(mode));
+                }
+            }
+            let uses_path = matches!(
+                network.as_str(),
+                "ws" | "h2" | "http" | "httpupgrade" | "xhttp"
+            );
+            let uses_host = matches!(
+                network.as_str(),
+                "ws" | "h2" | "http" | "httpupgrade" | "xhttp"
+            );
+            let uses_service = network == "grpc";
             Ok(ParsedShareNode {
                 kind: kind.to_string(),
                 server,
@@ -699,14 +749,18 @@ fn parse_url_node(text: &str, kind: &str) -> Result<ParsedShareNode> {
                 tls: security != "none",
                 sni,
                 network: network.clone(),
-                path: if network == "ws" { ws_path } else { None },
-                host: if network == "ws" {
+                path: if uses_path {
+                    query_param(&url, "path").filter(|value| !value.is_empty())
+                } else {
+                    None
+                },
+                host: if uses_host {
                     query_param(&url, "host")
                 } else {
                     None
                 },
-                service: if network == "grpc" {
-                    grpc_service
+                service: if uses_service {
+                    grpc_service(&url)
                 } else {
                     None
                 },
@@ -725,6 +779,15 @@ fn parse_url_node(text: &str, kind: &str) -> Result<ParsedShareNode> {
                 return Err(NodeLinkError::new("Hysteria2 链接缺少认证密码"));
             }
             let mut warnings = warnings;
+            if let Some(alpn) = alpn_list(&url) {
+                extra.insert("alpn".to_string(), alpn);
+            }
+            let fingerprint = query_param(&url, "pinSHA256")
+                .or_else(|| query_param(&url, "pin"))
+                .filter(|value| !value.is_empty());
+            if let Some(fingerprint) = fingerprint {
+                extra.insert("fingerprint".to_string(), Value::String(fingerprint));
+            }
             if let Some(obfs) = query_param(&url, "obfs").filter(|value| !value.is_empty()) {
                 extra.insert("obfs".to_string(), Value::String(obfs));
                 match query_param(&url, "obfs-password").filter(|value| !value.is_empty()) {
@@ -766,6 +829,22 @@ fn parse_url_node(text: &str, kind: &str) -> Result<ParsedShareNode> {
             }
             if password.is_empty() {
                 return Err(NodeLinkError::new("TUIC 链接缺少密码"));
+            }
+            if let Some(alpn) = alpn_list(&url) {
+                extra.insert("alpn".to_string(), alpn);
+            }
+            if let Some(congestion) =
+                query_param(&url, "congestion_control").filter(|value| !value.is_empty())
+            {
+                extra.insert(
+                    "congestion-controller".to_string(),
+                    Value::String(congestion),
+                );
+            }
+            if let Some(udp_relay) =
+                query_param(&url, "udp_relay_mode").filter(|value| !value.is_empty())
+            {
+                extra.insert("udp-relay-mode".to_string(), Value::String(udp_relay));
             }
             Ok(ParsedShareNode {
                 kind: kind.to_string(),
@@ -936,8 +1015,54 @@ pub fn share_node_to_proxy(node: &ParsedShareNode) -> Map<String, Value> {
         }
     }
 
+    let xhttp_mode = proxy.remove("xhttp-mode");
     if !matches!(node.kind.as_str(), "hysteria2" | "tuic") && node.network != "tcp" {
         proxy.insert("network".to_string(), Value::String(node.network.clone()));
+        if node.network == "xhttp" {
+            let mut xhttp_opts = Map::new();
+            if let Some(Value::String(mode)) = xhttp_mode {
+                xhttp_opts.insert("mode".to_string(), Value::String(mode));
+            }
+            if let Some(path) = node.path.as_deref().filter(|value| !value.is_empty()) {
+                xhttp_opts.insert("path".to_string(), Value::String(path.to_string()));
+            }
+            if let Some(host) = node.host.as_deref().filter(|value| !value.is_empty()) {
+                xhttp_opts.insert("host".to_string(), Value::String(host.to_string()));
+            }
+            proxy.insert("xhttp-opts".to_string(), Value::Object(xhttp_opts));
+        }
+        if node.network == "h2" {
+            let mut h2_opts = Map::new();
+            if let Some(path) = node.path.as_deref().filter(|value| !value.is_empty()) {
+                h2_opts.insert("path".to_string(), Value::String(path.to_string()));
+            }
+            if let Some(host) = node.host.as_deref().filter(|value| !value.is_empty()) {
+                h2_opts.insert("host".to_string(), Value::String(host.to_string()));
+            }
+            proxy.insert("h2-opts".to_string(), Value::Object(h2_opts));
+        }
+        if node.network == "http" {
+            let mut http_opts = Map::new();
+            if let Some(path) = node.path.as_deref().filter(|value| !value.is_empty()) {
+                http_opts.insert("path".to_string(), Value::String(path.to_string()));
+            }
+            if let Some(host) = node.host.as_deref().filter(|value| !value.is_empty()) {
+                let mut headers = Map::new();
+                headers.insert("Host".to_string(), Value::String(host.to_string()));
+                http_opts.insert("headers".to_string(), Value::Object(headers));
+            }
+            proxy.insert("http-opts".to_string(), Value::Object(http_opts));
+        }
+        if node.network == "httpupgrade" {
+            let mut opts = Map::new();
+            if let Some(path) = node.path.as_deref().filter(|value| !value.is_empty()) {
+                opts.insert("path".to_string(), Value::String(path.to_string()));
+            }
+            if let Some(host) = node.host.as_deref().filter(|value| !value.is_empty()) {
+                opts.insert("host".to_string(), Value::String(host.to_string()));
+            }
+            proxy.insert("httpupgrade-opts".to_string(), Value::Object(opts));
+        }
         if node.network == "ws" {
             let mut ws_opts = Map::new();
             ws_opts.insert(
@@ -966,4 +1091,77 @@ pub fn share_node_to_proxy(node: &ParsedShareNode) -> Map<String, Value> {
         }
     }
     proxy
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_share_link, share_node_to_proxy};
+
+    const HY2: &str = "hysteria2://afed9bd7-990d-4154-a2bf-27e8246bbe5b@45.66.129.172:34467?security=tls&alpn=h3&insecure=0&allowInsecure=0&sni=www.bing.com&pinSHA256=a0cddbe9d2531e4b91e6164599e7e471ecc032e80487fad668d7a024f1e00622#hy2-4a87c9a2-d9de-4cbd-a005-33b6442223ae";
+
+    const VLESS: &str = "vless://afed9bd7-990d-4154-a2bf-27e8246bbe5b@45.66.129.172:34466?encryption=none&security=tls&sni=www.bing.com&alpn=h3&insecure=0&allowInsecure=0&hpkp=a0cddbe9d2531e4b91e6164599e7e471ecc032e80487fad668d7a024f1e00622&pcs=a0cddbe9d2531e4b91e6164599e7e471ecc032e80487fad668d7a024f1e00622&type=xhttp&path=afed9bd7-990d-4154-a2bf-27e8246bbe5b-xu&mode=auto#Vless-xhttp-tls-UDP-4a87c9a2-d9de-4cbd-a005-33b6442223ae";
+
+    #[test]
+    fn parses_hysteria2_with_pin_and_alpn() {
+        let node = parse_share_link(HY2).unwrap();
+        assert_eq!(node.kind, "hysteria2");
+        assert_eq!(node.server, "45.66.129.172");
+        assert_eq!(node.port, 34467);
+        assert_eq!(node.sni.as_deref(), Some("www.bing.com"));
+        let proxy = share_node_to_proxy(&node);
+        assert_eq!(
+            proxy.get("password").and_then(serde_json::Value::as_str),
+            Some("afed9bd7-990d-4154-a2bf-27e8246bbe5b")
+        );
+        assert_eq!(
+            proxy.get("sni").and_then(serde_json::Value::as_str),
+            Some("www.bing.com")
+        );
+        assert_eq!(
+            proxy.get("fingerprint").and_then(serde_json::Value::as_str),
+            Some("a0cddbe9d2531e4b91e6164599e7e471ecc032e80487fad668d7a024f1e00622")
+        );
+        assert_eq!(
+            proxy.get("alpn").map(serde_json::Value::to_string),
+            Some("[\"h3\"]".to_string())
+        );
+        assert!(proxy.get("skip-cert-verify").is_none());
+    }
+
+    #[test]
+    fn parses_vless_xhttp_transport() {
+        let node = parse_share_link(VLESS).unwrap();
+        assert_eq!(node.network, "xhttp");
+        assert_eq!(
+            node.path.as_deref(),
+            Some("afed9bd7-990d-4154-a2bf-27e8246bbe5b-xu")
+        );
+        let proxy = share_node_to_proxy(&node);
+        assert_eq!(
+            proxy.get("network").and_then(serde_json::Value::as_str),
+            Some("xhttp")
+        );
+        let opts = proxy
+            .get("xhttp-opts")
+            .and_then(serde_json::Value::as_object)
+            .unwrap();
+        assert_eq!(
+            opts.get("mode").and_then(serde_json::Value::as_str),
+            Some("auto")
+        );
+        assert_eq!(
+            opts.get("path").and_then(serde_json::Value::as_str),
+            Some("afed9bd7-990d-4154-a2bf-27e8246bbe5b-xu")
+        );
+        assert_eq!(
+            proxy.get("servername").and_then(serde_json::Value::as_str),
+            Some("www.bing.com")
+        );
+        assert_eq!(
+            proxy.get("tls").and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+        assert!(proxy.get("fingerprint").is_none());
+        assert!(proxy.get("alpn").is_some());
+    }
 }
