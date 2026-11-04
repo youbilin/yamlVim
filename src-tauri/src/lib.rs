@@ -1028,7 +1028,7 @@ fn export_to_clash_verge(name: Option<String>) -> Result<VergeExportResult, Stri
         .map_err(|error| format!("failed to create {}: {error}", profiles_dir.display()))?;
 
     let workspace = load_workspace()?;
-    let yaml = workspace.to_yaml(false).map_err(|error| error.to_string())?;
+    let (yaml, provider_copies) = portable_external_yaml(&workspace)?;
 
     let now_millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1040,22 +1040,12 @@ fn export_to_clash_verge(name: Option<String>) -> Result<VergeExportResult, Stri
     write_atomic(&profiles_dir.join(&file), &yaml)?;
 
     // 复制本地规则/代理提供者文件，Verge 以它的数据目录为 -d 根
-    let data = app_data_dir()?;
-    let core_dir = data.join("core");
-    let value = workspace
-        .to_value(false)
-        .map_err(|error| error.to_string())?;
     let mut providers_copied = 0usize;
-    for entry in provider_paths(&value).map_err(|error| error.to_string())? {
-        let relative = entry.path.trim_start_matches("./");
-        if relative.is_empty() {
-            continue;
-        }
-        let source = core_dir.join(relative);
+    for (source, relative) in provider_copies {
         if !source.is_file() {
             continue;
         }
-        let target = dir.join(relative);
+        let target = dir.join(&relative);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)
                 .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
@@ -1139,7 +1129,7 @@ fn share_server() -> std::sync::MutexGuard<'static, share::ShareServer> {
 #[tauri::command]
 fn share_to_clash_verge() -> Result<ShareInfoView, String> {
     let workspace = load_workspace()?;
-    let yaml = workspace.to_yaml(false).map_err(|error| error.to_string())?;
+    let (yaml, _) = portable_external_yaml(&workspace)?;
     let info = share_server().publish(yaml)?;
     Ok(ShareInfoView {
         url: info.url,
@@ -1182,6 +1172,59 @@ fn open_external_url(url: String) -> Result<bool, String> {
     }
     let opened = open_in_shell(url);
     Ok(opened)
+}
+
+/// 生成对外使用的 YAML：provider 路径改写为 home 内相对路径，
+/// 并返回需要随配置一起复制的本地文件（源路径, 相对目标）。
+fn portable_external_yaml(workspace: &Workspace) -> Result<(String, Vec<(PathBuf, String)>), String> {
+    let mut portable = workspace.clone();
+    let core_dir = core_data_dir()?;
+    let mut copies: Vec<(PathBuf, String)> = Vec::new();
+    for providers in [
+        &mut portable.rule_providers,
+        &mut portable.proxy_providers,
+    ] {
+        for (name, provider) in providers.iter_mut() {
+            let Some(mapping) = provider.as_mapping_mut() else {
+                continue;
+            };
+            let Some(provider_name) = name.as_str() else {
+                continue;
+            };
+            let Some(old_path) = mapping
+                .get("path")
+                .and_then(serde_yaml::Value::as_str)
+                .map(str::to_string)
+            else {
+                continue;
+            };
+            let extension = Path::new(&old_path)
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("mrs")
+                .to_string();
+            let relative = format!(
+                "./rules/{}.{}",
+                sanitize_component(provider_name),
+                extension
+            );
+            mapping.insert(
+                serde_yaml::Value::String("path".into()),
+                serde_yaml::Value::String(relative.clone()),
+            );
+            let source = {
+                let path = Path::new(&old_path);
+                if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    core_dir.join(path)
+                }
+            };
+            copies.push((source, relative.trim_start_matches("./").to_string()));
+        }
+    }
+    let yaml = portable.to_yaml(false).map_err(|error| error.to_string())?;
+    Ok((yaml, copies))
 }
 
 #[derive(Debug, Serialize)]
@@ -2266,9 +2309,7 @@ async fn switch_proxy(group: String, name: String) -> Result<String, String> {
 #[tauri::command]
 fn export_config() -> Result<String, String> {
     let workspace = load_workspace()?;
-    let yaml = workspace
-        .to_yaml(false)
-        .map_err(|error| error.to_string())?;
+    let (yaml, _) = portable_external_yaml(&workspace)?;
     let exports = exports_dir()?;
     fs::create_dir_all(&exports)
         .map_err(|error| format!("failed to create {}: {error}", exports.display()))?;
@@ -2546,6 +2587,10 @@ mod tests {
         let verge_profiles_text = fs::read_to_string(verge_dir.join("profiles.yaml")).unwrap();
         assert!(verge_profiles_text.contains(&verge_export.file));
         assert!(verge_profiles_text.contains("current: yamlvim-"));
+        let verge_profile_yaml =
+            fs::read_to_string(verge_profiles.join(&verge_export.file)).unwrap();
+        assert!(verge_profile_yaml.contains("./rules/verge-private.yaml"));
+        assert!(verge_dir.join("rules").join("verge-private.yaml").is_file());
         match previous_verge {
             Some(value) => std::env::set_var("YAMLVIM_VERGE_DIR", value),
             None => std::env::remove_var("YAMLVIM_VERGE_DIR"),
