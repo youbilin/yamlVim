@@ -22,6 +22,8 @@ use yamlvim_mihomo::{
     ControllerClient, ControllerTransport, CoreProbe, DelayResult, ProbeOptions, SystemRunner,
 };
 
+const DEFAULT_DNS_YAML: &str = include_str!("../defaults/dns-default.yaml");
+
 const GEODATA_FILES: &[&str] = &[
     "Country.mmdb",
     "geoip.metadb",
@@ -472,6 +474,49 @@ fn resolve_core_path(preferred: Option<&str>) -> Result<String, String> {
     Ok("mihomo".to_string())
 }
 
+fn core_available(core: &str) -> bool {
+    let path = Path::new(core);
+    if path.is_absolute() || core.contains('\\') || core.contains('/') {
+        return path.is_file();
+    }
+    true
+}
+
+fn missing_core_validation(core: &str) -> ConfigValidation {
+    ConfigValidation {
+        ok: false,
+        status: None,
+        timed_out: false,
+        output: format!(
+            "未找到 mihomo 内核（{core}）。mihomo -t 校验只需要内核可执行文件，不需要连接内核；请在「内核」页设置 mihomo 路径，或把 mihomo.exe 放到数据目录的 bin 文件夹。"
+        ),
+    }
+}
+
+fn skipped_core_validation() -> ConfigValidation {
+    ConfigValidation {
+        ok: true,
+        status: None,
+        timed_out: false,
+        output: "未找到 mihomo 内核，已跳过 mihomo -t 校验。".to_string(),
+    }
+}
+
+fn friendly_validation(validation: ConfigValidation, core: &str) -> ConfigValidation {
+    if !validation.ok && validation.output.contains("failed to start process") {
+        return ConfigValidation {
+            ok: false,
+            status: validation.status,
+            timed_out: validation.timed_out,
+            output: format!(
+                "无法启动 mihomo 内核（{core}）。请到「内核」页确认 mihomo 可执行文件路径。\n{}",
+                validation.output
+            ),
+        };
+    }
+    validation
+}
+
 fn load_workspace_opt() -> Result<Option<Workspace>, String> {
     let data = app_data_dir()?;
     let workspace_file = workspace_path()?;
@@ -620,7 +665,7 @@ fn save_dns_default(yaml: String) -> Result<String, String> {
 fn load_dns_default() -> Result<Option<String>, String> {
     let path = app_data_dir()?.join("dns-default.yaml");
     if !path.exists() {
-        return Ok(None);
+        return Ok(Some(DEFAULT_DNS_YAML.to_string()));
     }
     read_text(&path).map(Some)
 }
@@ -685,27 +730,45 @@ async fn apply_dns_yaml(yaml: String) -> Result<ConfigApplyResult, String> {
         .map_err(|error| error.to_string())?;
     let core_dir = data.join("core");
 
-    let validation = tauri::async_runtime::spawn_blocking({
-        let core = core.clone();
-        let candidate_yaml = candidate_yaml.clone();
-        move || {
-            validate_config_binary(
-                &SystemRunner,
-                Path::new(&core),
-                &candidate_yaml,
-                &core_dir,
-                Duration::from_secs(10),
-            )
-        }
-    })
-    .await
-    .map_err(|error| error.to_string())?;
+    let core_missing = !core_available(&core);
+    let validation = if core_missing {
+        skipped_core_validation()
+    } else {
+        friendly_validation(
+            tauri::async_runtime::spawn_blocking({
+                let core = core.clone();
+                let candidate_yaml = candidate_yaml.clone();
+                move || {
+                    validate_config_binary(
+                        &SystemRunner,
+                        Path::new(&core),
+                        &candidate_yaml,
+                        &core_dir,
+                        Duration::from_secs(10),
+                    )
+                }
+            })
+            .await
+            .map_err(|error| error.to_string())?,
+            &core,
+        )
+    };
+
+    let mut warnings = Vec::new();
+    if core_missing {
+        warnings.push(DnsWarning {
+            code: "core-missing".into(),
+            message: "未找到 mihomo 内核，已跳过 mihomo -t 校验；导出前请在「内核」页配置内核路径。"
+                .into(),
+            rule: None,
+        });
+    }
 
     if !validation.ok {
         return Ok(ConfigApplyResult {
             ok: false,
             yaml: candidate_yaml,
-            warnings: Vec::new(),
+            warnings,
             validation,
             snapshot: None,
         });
@@ -720,7 +783,7 @@ async fn apply_dns_yaml(yaml: String) -> Result<ConfigApplyResult, String> {
     Ok(ConfigApplyResult {
         ok: true,
         yaml: candidate_yaml,
-        warnings: Vec::new(),
+        warnings,
         validation,
         snapshot: Some(snapshot.display().to_string()),
     })
@@ -764,27 +827,406 @@ fn import_node_links(text: String) -> Result<ConfigStatus, String> {
     add_nodes_from_links(&text)
 }
 
-#[tauri::command]
-fn import_source(input: String) -> Result<ConfigStatus, String> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return Err("请输入配置文件路径、订阅链接、节点链接或 YAML".into());
-    }
-    let data = app_data_dir()?;
+#[derive(Debug, Clone, Deserialize)]
+struct VergeProfileItem {
+    uid: Option<String>,
+    name: Option<String>,
+    file: Option<String>,
+}
 
+#[derive(Debug, Deserialize)]
+struct VergeProfilesFile {
+    current: Option<String>,
+    items: Option<Vec<VergeProfileItem>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VergeProfile {
+    uid: String,
+    name: String,
+    file: String,
+    current: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VergeProfilesView {
+    dir: String,
+    profiles: Vec<VergeProfile>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VergeImportResult {
+    status: ConfigStatus,
+    profile: String,
+    controller_set: Option<String>,
+}
+
+fn verge_data_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(dir) = std::env::var_os("YAMLVIM_VERGE_DIR") {
+        dirs.push(PathBuf::from(dir));
+    }
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        let base = PathBuf::from(appdata);
+        for name in [
+            "io.github.clash-verge-rev.clash-verge-rev",
+            "top.gydi.clashverge",
+            "clash-verge",
+            "clash-verge-rev",
+        ] {
+            dirs.push(base.join(name));
+        }
+    }
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        dirs.push(PathBuf::from(local).join("io.github.clash-verge-rev.clash-verge-rev"));
+    }
+    dirs
+}
+
+fn find_verge_dir() -> Result<PathBuf, String> {
+    verge_data_dirs()
+        .into_iter()
+        .find(|dir| dir.join("profiles.yaml").is_file())
+        .ok_or_else(|| "未找到 Clash Verge 数据目录（profiles.yaml）".into())
+}
+
+fn read_verge_profile_list(dir: &Path) -> Result<(Option<String>, Vec<VergeProfileItem>), String> {
+    let text = read_text(&dir.join("profiles.yaml"))?;
+    let parsed: VergeProfilesFile =
+        serde_yaml::from_str(&text).map_err(|error| format!("profiles.yaml 解析失败：{error}"))?;
+    Ok((parsed.current, parsed.items.unwrap_or_default()))
+}
+
+fn verge_profile_file(dir: &Path, item: &VergeProfileItem) -> Option<String> {
+    let file = item.file.as_deref()?.trim();
+    (!file.is_empty() && dir.join("profiles").join(file).is_file()).then(|| file.to_string())
+}
+
+fn maybe_apply_verge_controller(dir: &Path) -> Result<Option<String>, String> {
+    let Ok(text) = read_text(&dir.join("config.yaml")) else {
+        return Ok(None);
+    };
+    let Ok(value) = serde_yaml::from_str::<serde_yaml::Value>(&text) else {
+        return Ok(None);
+    };
+    let Some(endpoint) = value
+        .get("external-controller")
+        .and_then(serde_yaml::Value::as_str)
+        .map(str::trim)
+        .filter(|endpoint| !endpoint.is_empty())
+    else {
+        return Ok(None);
+    };
+    let secret = value
+        .get("secret")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let mut settings = load_settings()?;
+    if !settings.controller_endpoint.trim().is_empty() {
+        return Ok(None);
+    }
+    settings.controller_endpoint = endpoint.to_string();
+    settings.controller_secret = secret;
+    save_settings(settings)?;
+    Ok(Some(endpoint.to_string()))
+}
+
+#[tauri::command]
+fn clash_verge_profiles() -> Result<VergeProfilesView, String> {
+    let dir = find_verge_dir()?;
+    let (current, items) = read_verge_profile_list(&dir)?;
+    let mut profiles = Vec::new();
+    for item in items {
+        let Some(file) = verge_profile_file(&dir, &item) else {
+            continue;
+        };
+        let is_current = item.uid.is_some() && item.uid == current;
+        profiles.push(VergeProfile {
+            uid: item.uid.clone().unwrap_or_else(|| file.clone()),
+            name: item.name.clone().unwrap_or_else(|| file.clone()),
+            file,
+            current: is_current,
+        });
+    }
+    Ok(VergeProfilesView {
+        dir: dir.display().to_string(),
+        profiles,
+    })
+}
+
+#[tauri::command]
+fn import_clash_verge(uid: Option<String>) -> Result<VergeImportResult, String> {
+    let dir = find_verge_dir()?;
+    let (current, items) = read_verge_profile_list(&dir)?;
+    let mut chosen: Option<&VergeProfileItem> = None;
+    for item in &items {
+        if verge_profile_file(&dir, item).is_none() {
+            continue;
+        }
+        let matches = match &uid {
+            Some(want) => item.uid.as_deref() == Some(want.as_str()),
+            None => item.uid.is_some() && item.uid == current,
+        };
+        if matches {
+            chosen = Some(item);
+            break;
+        }
+        chosen = chosen.or(Some(item));
+    }
+    let item = chosen.ok_or_else(|| "Clash Verge 没有可导入的订阅文件".to_string())?;
+    let file = verge_profile_file(&dir, item)
+        .ok_or_else(|| "Clash Verge 没有可导入的订阅文件".to_string())?;
+    let profiles_dir = dir.join("profiles");
+    let text = read_text(&profiles_dir.join(&file))?;
+    let status = import_workspace_text(&text, &profiles_dir)?;
+    let controller_set = maybe_apply_verge_controller(&dir)?;
+    Ok(VergeImportResult {
+        status,
+        profile: item.name.clone().unwrap_or_else(|| file.clone()),
+        controller_set,
+    })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VergeExportResult {
+    profile: String,
+    file: String,
+    verge_dir: String,
+    providers_copied: usize,
+}
+
+fn sanitize_verge_name(name: Option<&str>) -> String {
+    let trimmed = name
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("YamlVim");
+    trimmed
+        .chars()
+        .map(|character| match character {
+            '\n' | '\r' | '/' | '\\' | ':' => ' ',
+            other => other,
+        })
+        .collect::<String>()
+        .trim()
+        .chars()
+        .take(60)
+        .collect()
+}
+
+#[tauri::command]
+fn export_to_clash_verge(name: Option<String>) -> Result<VergeExportResult, String> {
+    let dir = find_verge_dir()?;
+    let profiles_dir = dir.join("profiles");
+    fs::create_dir_all(&profiles_dir)
+        .map_err(|error| format!("failed to create {}: {error}", profiles_dir.display()))?;
+
+    let workspace = load_workspace()?;
+    let yaml = workspace.to_yaml(false).map_err(|error| error.to_string())?;
+
+    let now_millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0);
+    let uid = format!("yamlvim-{now_millis}");
+    let profile_name = sanitize_verge_name(name.as_deref());
+    let file = format!("{uid}.yaml");
+    write_atomic(&profiles_dir.join(&file), &yaml)?;
+
+    // 复制本地规则/代理提供者文件，Verge 以它的数据目录为 -d 根
+    let data = app_data_dir()?;
+    let core_dir = data.join("core");
+    let value = workspace
+        .to_value(false)
+        .map_err(|error| error.to_string())?;
+    let mut providers_copied = 0usize;
+    for entry in provider_paths(&value).map_err(|error| error.to_string())? {
+        let relative = entry.path.trim_start_matches("./");
+        if relative.is_empty() {
+            continue;
+        }
+        let source = core_dir.join(relative);
+        if !source.is_file() {
+            continue;
+        }
+        let target = dir.join(relative);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
+        }
+        // 提供者文件可能被内核或杀毒软件短暂占用，复制失败时跳过，不影响订阅写入
+        if fs::copy(&source, &target).is_ok() {
+            providers_copied += 1;
+        }
+    }
+
+    let profiles_path = dir.join("profiles.yaml");
+    let text = read_text(&profiles_path)?;
+    let mut value: serde_yaml::Value =
+        serde_yaml::from_str(&text).map_err(|error| format!("profiles.yaml 解析失败：{error}"))?;
+    let Some(mapping) = value.as_mapping_mut() else {
+        return Err("profiles.yaml 结构无效".into());
+    };
+    let items = mapping
+        .entry(serde_yaml::Value::String("items".into()))
+        .or_insert_with(|| serde_yaml::Value::Sequence(Vec::new()));
+    let Some(sequence) = items.as_sequence_mut() else {
+        return Err("profiles.yaml items 结构无效".into());
+    };
+    sequence.retain(|item| {
+        item.get("uid").and_then(serde_yaml::Value::as_str) != Some(uid.as_str())
+    });
+    let mut item = Mapping::new();
+    item.insert(
+        serde_yaml::Value::String("uid".into()),
+        serde_yaml::Value::String(uid.clone()),
+    );
+    item.insert(
+        serde_yaml::Value::String("name".into()),
+        serde_yaml::Value::String(profile_name.clone()),
+    );
+    item.insert(
+        serde_yaml::Value::String("type".into()),
+        serde_yaml::Value::String("local".into()),
+    );
+    item.insert(
+        serde_yaml::Value::String("file".into()),
+        serde_yaml::Value::String(file.clone()),
+    );
+    item.insert(
+        serde_yaml::Value::String("updated".into()),
+        serde_yaml::Value::Number(now_millis.into()),
+    );
+    sequence.push(serde_yaml::Value::Mapping(item));
+    mapping.insert(
+        serde_yaml::Value::String("current".into()),
+        serde_yaml::Value::String(uid.clone()),
+    );
+    let updated_text = serde_yaml::to_string(&value).map_err(|error| error.to_string())?;
+    write_atomic(&profiles_path, &updated_text)?;
+
+    Ok(VergeExportResult {
+        profile: profile_name,
+        file,
+        verge_dir: dir.display().to_string(),
+        providers_copied,
+    })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportBatchResult {
+    status: ConfigStatus,
+    added_nodes: u64,
+    added_exits: u64,
+    added_rules: u64,
+    errors: Vec<String>,
+}
+
+fn looks_like_path(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    text.starts_with('/')
+        || text.starts_with("./")
+        || text.starts_with(".\\")
+        || (bytes.len() >= 3 && bytes[1] == b':' && (bytes[2] == b'\\' || bytes[2] == b'/'))
+}
+
+fn import_single_source(line: &str, data: &Path) -> Result<ConfigStatus, String> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return Err("内容为空".into());
+    }
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
         let body = fetch_text(trimmed)?;
-        return import_text_or_links(&body, &data, true);
+        return import_text_or_links(&body, data, true);
     }
-
     let path = Path::new(trimmed);
     if path.is_file() {
         let body = read_text(path)?;
         let source_dir = path.parent().unwrap_or_else(|| Path::new("."));
         return import_text_or_links(&body, source_dir, true);
     }
+    if looks_like_path(trimmed) {
+        return Err(format!("文件不存在：{trimmed}"));
+    }
+    import_text_or_links(trimmed, data, true)
+}
 
-    import_text_or_links(trimmed, &data, true)
+#[tauri::command]
+fn import_source(input: String) -> Result<ImportBatchResult, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("请输入配置文件路径、订阅链接、节点链接或 YAML".into());
+    }
+    let data = app_data_dir()?;
+
+    // 整段 YAML 配置或单个节点 YAML 保持一次性导入的语义
+    if looks_like_config(trimmed) {
+        let status = import_workspace_text(trimmed, &data)?;
+        return Ok(ImportBatchResult {
+            status,
+            added_nodes: 0,
+            added_exits: 0,
+            added_rules: 0,
+            errors: Vec::new(),
+        });
+    }
+    if single_node_yaml(trimmed) {
+        let status = add_node_yaml(trimmed.to_string())?;
+        return Ok(ImportBatchResult {
+            status,
+            added_nodes: 0,
+            added_exits: 0,
+            added_rules: 0,
+            errors: Vec::new(),
+        });
+    }
+
+    let lines: Vec<String> = trimmed
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect();
+    if lines.is_empty() {
+        return Err("请输入配置文件路径、订阅链接、节点链接或 YAML".into());
+    }
+
+    let mut counts = config_status()?;
+    let mut added_nodes = 0u64;
+    let mut added_exits = 0u64;
+    let mut added_rules = 0u64;
+    let mut errors = Vec::new();
+
+    for (index, line) in lines.iter().enumerate() {
+        match import_single_source(line, &data) {
+            Ok(status) => {
+                added_nodes += (status.node_count as u64).saturating_sub(counts.node_count as u64);
+                added_exits += (status.exit_count as u64).saturating_sub(counts.exit_count as u64);
+                added_rules += (status.rule_count as u64).saturating_sub(counts.rule_count as u64);
+                counts = status;
+            }
+            Err(error) => errors.push(format!("第 {} 行：{}", index + 1, error)),
+        }
+    }
+
+    if errors.len() == lines.len() {
+        return Err(errors.join("；"));
+    }
+
+    let status = config_status()?;
+    Ok(ImportBatchResult {
+        status,
+        added_nodes,
+        added_exits,
+        added_rules,
+        errors,
+    })
 }
 
 fn import_text_or_links(
@@ -820,13 +1262,19 @@ async fn validate_config(yaml: String) -> Result<ConfigValidation, String> {
     let settings = load_settings()?;
     let core = resolve_core_path(Some(&settings.core_path))?;
     let core_dir = core_data_dir()?;
+    if !core_available(&core) {
+        return Ok(missing_core_validation(&core));
+    }
     tauri::async_runtime::spawn_blocking(move || {
-        validate_config_binary(
-            &SystemRunner,
-            Path::new(&core),
-            &yaml,
-            &core_dir,
-            Duration::from_secs(10),
+        friendly_validation(
+            validate_config_binary(
+                &SystemRunner,
+                Path::new(&core),
+                &yaml,
+                &core_dir,
+                Duration::from_secs(10),
+            ),
+            &core,
         )
     })
     .await
@@ -851,27 +1299,45 @@ async fn apply_dns_config(input: DnsInput) -> Result<ConfigApplyResult, String> 
         .map_err(|error| error.to_string())?;
     let core_dir = data.join("core");
 
-    let validation = tauri::async_runtime::spawn_blocking({
-        let core = core.clone();
-        let yaml = yaml.clone();
-        move || {
-            validate_config_binary(
-                &SystemRunner,
-                Path::new(&core),
-                &yaml,
-                &core_dir,
-                Duration::from_secs(10),
-            )
-        }
-    })
-    .await
-    .map_err(|error| error.to_string())?;
+    let core_missing = !core_available(&core);
+    let validation = if core_missing {
+        skipped_core_validation()
+    } else {
+        friendly_validation(
+            tauri::async_runtime::spawn_blocking({
+                let core = core.clone();
+                let yaml = yaml.clone();
+                move || {
+                    validate_config_binary(
+                        &SystemRunner,
+                        Path::new(&core),
+                        &yaml,
+                        &core_dir,
+                        Duration::from_secs(10),
+                    )
+                }
+            })
+            .await
+            .map_err(|error| error.to_string())?,
+            &core,
+        )
+    };
+
+    let mut warnings = compiled.warnings;
+    if core_missing {
+        warnings.push(DnsWarning {
+            code: "core-missing".into(),
+            message: "未找到 mihomo 内核，已跳过 mihomo -t 校验；导出前请在「内核」页配置内核路径。"
+                .into(),
+            rule: None,
+        });
+    }
 
     if !validation.ok {
         return Ok(ConfigApplyResult {
             ok: false,
             yaml,
-            warnings: compiled.warnings,
+            warnings,
             validation,
             snapshot: None,
         });
@@ -886,7 +1352,7 @@ async fn apply_dns_config(input: DnsInput) -> Result<ConfigApplyResult, String> 
     Ok(ConfigApplyResult {
         ok: true,
         yaml,
-        warnings: compiled.warnings,
+        warnings,
         validation,
         snapshot: Some(snapshot.display().to_string()),
     })
@@ -1307,6 +1773,159 @@ fn delete_exit(name: String) -> Result<ConfigStatus, String> {
     config_status()
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TemplateProviderInput {
+    name: String,
+    behavior: String,
+    url: String,
+    #[serde(default = "default_provider_format")]
+    format: String,
+}
+
+fn default_provider_format() -> String {
+    "mrs".to_string()
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TemplateRuleInput {
+    provider: String,
+    target: String,
+    #[serde(default)]
+    no_resolve: bool,
+}
+
+#[tauri::command]
+fn apply_group_template(
+    groups: Vec<serde_yaml::Value>,
+    providers: Vec<TemplateProviderInput>,
+    rules: Vec<TemplateRuleInput>,
+    match_target: String,
+) -> Result<ConfigStatus, String> {
+    if groups.is_empty() {
+        return Err("模板没有策略组".into());
+    }
+    let match_target = match_target.trim();
+    if match_target.is_empty() {
+        return Err("模板缺少 MATCH 目标".into());
+    }
+
+    let mut workspace = load_workspace()?;
+
+    for group in groups {
+        let mapping = group
+            .as_mapping()
+            .ok_or_else(|| "策略组必须是 mapping".to_string())?;
+        let name = mapping
+            .get("name")
+            .and_then(serde_yaml::Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| "策略组缺少 name".to_string())?;
+        if mapping
+            .get("proxies")
+            .and_then(serde_yaml::Value::as_sequence)
+            .is_none()
+        {
+            return Err(format!("策略组 {name} 缺少 proxies"));
+        }
+        let replacement = serde_yaml::Value::Mapping(mapping.clone());
+        if let Some(index) = workspace
+            .proxy_groups
+            .iter()
+            .position(|value| proxy_name(value).as_deref() == Some(name))
+        {
+            workspace.proxy_groups[index] = replacement;
+        } else {
+            workspace.proxy_groups.push(replacement);
+        }
+    }
+
+    let provider_names: BTreeSet<String> = providers.iter().map(|item| item.name.clone()).collect();
+
+    for provider in providers {
+        let provider_name = provider.name.trim();
+        if provider_name.is_empty() {
+            return Err("规则集缺少名称".into());
+        }
+        let mut mapping = Mapping::new();
+        mapping.insert(
+            serde_yaml::Value::String("type".into()),
+            serde_yaml::Value::String("http".into()),
+        );
+        mapping.insert(
+            serde_yaml::Value::String("behavior".into()),
+            serde_yaml::Value::String(provider.behavior),
+        );
+        mapping.insert(
+            serde_yaml::Value::String("url".into()),
+            serde_yaml::Value::String(provider.url),
+        );
+        mapping.insert(
+            serde_yaml::Value::String("path".into()),
+            serde_yaml::Value::String(format!(
+                "./rules/{}.mrs",
+                sanitize_component(provider_name)
+            )),
+        );
+        mapping.insert(
+            serde_yaml::Value::String("interval".into()),
+            serde_yaml::Value::Number(serde_yaml::Number::from(86400)),
+        );
+        mapping.insert(
+            serde_yaml::Value::String("format".into()),
+            serde_yaml::Value::String(provider.format),
+        );
+        workspace.rule_providers.insert(
+            serde_yaml::Value::String(provider_name.to_string()),
+            serde_yaml::Value::Mapping(mapping),
+        );
+    }
+
+    let mut retained = Vec::new();
+    for rule in std::mem::take(&mut workspace.rules) {
+        let Some(text) = rule.as_str() else {
+            retained.push(rule);
+            continue;
+        };
+        let trimmed = text.trim();
+        if trimmed.starts_with("MATCH,") {
+            continue;
+        }
+        let mut parts = trimmed.split(',');
+        if parts.next() == Some("RULE-SET") {
+            if let Some(provider) = parts.next() {
+                if provider_names.contains(provider) {
+                    continue;
+                }
+            }
+        }
+        retained.push(rule);
+    }
+
+    let mut next_rules = Vec::new();
+    for rule in rules {
+        let provider = rule.provider.trim();
+        let target = rule.target.trim();
+        if provider.is_empty() || target.is_empty() {
+            return Err("模板规则缺少规则集或目标".into());
+        }
+        let mut text = format!("RULE-SET,{provider},{target}");
+        if rule.no_resolve {
+            text.push_str(",no-resolve");
+        }
+        next_rules.push(serde_yaml::Value::String(text));
+    }
+    next_rules.extend(retained);
+    next_rules.push(serde_yaml::Value::String(format!("MATCH,{match_target}")));
+    workspace.rules = next_rules;
+
+    workspace.normalize();
+    save_workspace_files(&workspace, Some("group-template"))?;
+    config_status()
+}
+
 #[tauri::command]
 fn save_rules(rules: Vec<String>) -> Result<ConfigStatus, String> {
     let mut workspace = load_workspace()?;
@@ -1440,6 +2059,22 @@ async fn controller_delay(name: String) -> Result<DelayResult, String> {
             error: Some(error),
         }),
     }
+}
+
+#[tauri::command]
+async fn controller_close_connection(id: String) -> Result<String, String> {
+    let settings = load_settings()?;
+    let endpoint = settings.controller_endpoint.trim().to_string();
+    if endpoint.is_empty() {
+        return Err("请先配置控制器地址和密钥".into());
+    }
+    let client = ControllerClient::from_parts(
+        &endpoint,
+        &settings.controller_secret,
+        ControllerTransport::Tcp,
+    );
+    client.close_connection(&id)?;
+    Ok("连接已断开".into())
 }
 
 #[tauri::command]
@@ -1637,10 +2272,14 @@ pub fn run() {
             import_source,
             import_config_text,
             import_node_links,
+            clash_verge_profiles,
+            import_clash_verge,
+            export_to_clash_verge,
             controller_get,
             controller_delay,
             controller_dns_query,
             controller_flush_dns,
+            controller_close_connection,
             save_controller,
             list_exports,
             latest_export,
@@ -1658,6 +2297,7 @@ pub fn run() {
             exit_yaml,
             save_exit_yaml,
             delete_exit,
+            apply_group_template,
             save_rules,
             create_chain_node
         ])
@@ -1676,6 +2316,12 @@ mod tests {
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
         std::env::temp_dir().join(format!("yamlvim-tauri-{label}-{nanos}"))
+    }
+
+    #[test]
+    fn builtin_dns_default_has_wbu_policy() {
+        assert!(DEFAULT_DNS_YAML.contains("+.wbu.edu.cn"));
+        assert!(DEFAULT_DNS_YAML.contains("218.199.208.8"));
     }
 
     #[test]
@@ -1757,6 +2403,85 @@ mod tests {
             "DIRECT".into(),
         )
         .unwrap();
+        let template_status = apply_group_template(
+            vec![
+                serde_yaml::from_str::<serde_yaml::Value>(
+                    "name: Auto\ntype: select\nproxies: [Auto2, DIRECT]\n",
+                )
+                .unwrap(),
+                serde_yaml::from_str::<serde_yaml::Value>(
+                    "name: Auto2\ntype: url-test\nproxies: [DIRECT]\nurl: https://example.com\ninterval: 300\n",
+                )
+                .unwrap(),
+            ],
+            vec![TemplateProviderInput {
+                name: "template-test".into(),
+                behavior: "domain".into(),
+                url: "https://example.com/template.mrs".into(),
+                format: "mrs".into(),
+            }],
+            vec![TemplateRuleInput {
+                provider: "template-test".into(),
+                target: "Auto".into(),
+                no_resolve: true,
+            }],
+            "Auto2".into(),
+        )
+        .unwrap();
+        let template_workspace_text = fs::read_to_string(data.join("workspace.json")).unwrap();
+        let default_path = save_dns_default("dns:\n  enable: true\n".into()).unwrap();
+        assert!(Path::new(&default_path).is_file());
+        assert!(load_dns_default().unwrap().unwrap().contains("enable"));
+        let batch_status = import_source(
+            "ss://YWVzLTI1Ni1nY206dGVzdA==@a.example.com:443#batch-a\nss://YWVzLTI1Ni1nY206dGVzdA==@b.example.com:443#batch-b\n\u{65e0}\u{6548}\u{884c}\n"
+                .into(),
+        )
+        .unwrap();
+        assert_eq!(batch_status.added_nodes, 2);
+        assert_eq!(batch_status.errors.len(), 1);
+        assert!(batch_status.errors[0].contains("\u{7b2c} 3 \u{884c}"));
+        assert_eq!(batch_status.status.node_count, 2);
+
+        let previous_verge = std::env::var_os("YAMLVIM_VERGE_DIR");
+        let verge_dir = root.join("verge");
+        let verge_profiles = verge_dir.join("profiles");
+        fs::create_dir_all(&verge_profiles).unwrap();
+        fs::write(
+            verge_dir.join("profiles.yaml"),
+            "current: abc123\nitems:\n  - uid: abc123\n    name: \u{6d4b}\u{8bd5}\u{8ba2}\u{9605}\n    file: abc.yaml\n    type: remote\n    url: https://example.com/sub\n",
+        )
+        .unwrap();
+        fs::write(
+            verge_dir.join("config.yaml"),
+            "external-controller: 127.0.0.1:9090\nsecret: verge-secret\n",
+        )
+        .unwrap();
+        fs::write(
+            verge_profiles.join("abc.yaml"),
+            "proxies:\n  - name: verge-node\n    type: ss\n    server: v.example.com\n    port: 8388\n    cipher: aes-128-gcm\n    password: pw\nproxy-groups:\n  - name: VergeAuto\n    type: select\n    proxies: [verge-node]\nrules:\n  - MATCH,VergeAuto\nrule-providers:\n  verge-private:\n    type: file\n    behavior: domain\n    path: verge-private.yaml\n",
+        )
+        .unwrap();
+        fs::write(verge_profiles.join("verge-private.yaml"), "payload:\n  - '+.local'\n").unwrap();
+        std::env::set_var("YAMLVIM_VERGE_DIR", &verge_dir);
+        let verge_view = clash_verge_profiles().unwrap();
+        assert_eq!(verge_view.profiles.len(), 1);
+        assert!(verge_view.profiles[0].current);
+        let verge_result = import_clash_verge(None).unwrap();
+        assert_eq!(verge_result.profile, "\u{6d4b}\u{8bd5}\u{8ba2}\u{9605}");
+        assert_eq!(verge_result.status.node_count, 1);
+        assert_eq!(verge_result.controller_set.as_deref(), Some("127.0.0.1:9090"));
+        assert_eq!(load_settings().unwrap().controller_endpoint, "127.0.0.1:9090");
+        let verge_export = export_to_clash_verge(Some("\u{6d4b}\u{8bd5}\u{5bfc}\u{51fa}".into())).unwrap();
+        assert_eq!(verge_export.profile, "\u{6d4b}\u{8bd5}\u{5bfc}\u{51fa}");
+        assert!(verge_export.file.starts_with("yamlvim-"));
+        assert!(verge_profiles.join(&verge_export.file).is_file());
+        let verge_profiles_text = fs::read_to_string(verge_dir.join("profiles.yaml")).unwrap();
+        assert!(verge_profiles_text.contains(&verge_export.file));
+        assert!(verge_profiles_text.contains("current: yamlvim-"));
+        match previous_verge {
+            Some(value) => std::env::set_var("YAMLVIM_VERGE_DIR", value),
+            None => std::env::remove_var("YAMLVIM_VERGE_DIR"),
+        }
 
         match previous {
             Some(value) => std::env::set_var("YAMLVIM_DATA_DIR", value),
@@ -1775,13 +2500,37 @@ mod tests {
 
         let workspace_text = fs::read_to_string(data.join("workspace.json")).unwrap();
         let workspace: Workspace = serde_json::from_str(&workspace_text).unwrap();
-        assert_eq!(workspace.node_count(), 0);
+        assert_eq!(workspace.node_count(), 1);
 
         let generated = fs::read_to_string(data.join("config.yaml")).unwrap();
         assert!(!generated.contains("node-a"));
         assert!(!generated.contains("external-controller"));
         assert!(!generated.contains("local-secret"));
         assert!(generated.contains("providers"));
+        assert_eq!(template_status.exit_count, 2);
+        assert_eq!(template_status.rule_count, 3);
+        let template_workspace: Workspace =
+            serde_json::from_str(&template_workspace_text).unwrap();
+        let auto_group = template_workspace
+            .proxy_groups
+            .iter()
+            .find(|group| proxy_name(group).as_deref() == Some("Auto"))
+            .unwrap();
+        let auto_members = auto_group
+            .as_mapping()
+            .and_then(|mapping| mapping.get("proxies"))
+            .and_then(serde_yaml::Value::as_sequence)
+            .unwrap();
+        assert!(auto_members
+            .iter()
+            .any(|member| member.as_str() == Some("Auto2")));
+        let template_rules: Vec<&str> = template_workspace
+            .rules
+            .iter()
+            .filter_map(serde_yaml::Value::as_str)
+            .collect();
+        assert_eq!(template_rules.first().copied(), Some("RULE-SET,template-test,Auto,no-resolve"));
+        assert_eq!(template_rules.last().copied(), Some("MATCH,Auto2"));
         assert!(generated.contains("private.yaml"));
 
         let copied_provider = data
@@ -1815,9 +2564,6 @@ mod tests {
         assert_eq!(exit_created.exit_count, 2);
         assert_eq!(exit_deleted.exit_count, 1);
         assert_eq!(rule_set_status.rule_count, 2);
-        let default_path = save_dns_default("dns:\n  enable: true\n".into()).unwrap();
-        assert!(Path::new(&default_path).is_file());
-        assert!(load_dns_default().unwrap().unwrap().contains("enable"));
         let _ = fs::remove_dir_all(root);
     }
 }

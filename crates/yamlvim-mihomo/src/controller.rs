@@ -91,7 +91,7 @@ impl ControllerClient {
 
     fn base_url(&self) -> String {
         match &self.transport {
-            ControllerTransport::Tcp => self.endpoint.clone(),
+            ControllerTransport::Tcp => normalize_endpoint(&self.endpoint),
             _ => "http://localhost".to_string(),
         }
     }
@@ -114,7 +114,7 @@ impl ControllerClient {
         let response = request
             .timeout(Duration::from_secs(10))
             .call()
-            .map_err(|error| format!("controller request failed: {error}"))?;
+            .map_err(request_error)?;
         response
             .into_string()
             .map_err(|error| format!("failed to read response: {error}"))
@@ -130,7 +130,7 @@ impl ControllerClient {
         let response = request
             .timeout(Duration::from_secs(10))
             .send_string(body)
-            .map_err(|error| format!("controller request failed: {error}"))?;
+            .map_err(request_error)?;
         Ok(response.into_string().unwrap_or_else(|_| String::new()))
     }
 
@@ -179,6 +179,29 @@ impl ControllerClient {
             .ok_or_else(|| "no delay in response".to_string())
     }
 
+    /// Perform a DELETE request to the controller API.
+    pub fn delete(&self, path: &str) -> Result<String, String> {
+        let url = format!("{}{}", self.base_url(), path);
+        let mut request = ureq::delete(&url);
+        if let Some((key, value)) = self.auth_header() {
+            request = request.set(&key, &value);
+        }
+        let response = request
+            .timeout(Duration::from_secs(10))
+            .call()
+            .map_err(request_error)?;
+        Ok(response.into_string().unwrap_or_default())
+    }
+
+    /// Close a live connection so it re-dials through the current rules.
+    pub fn close_connection(&self, id: &str) -> Result<(), String> {
+        if id.trim().is_empty() {
+            return Err("连接 ID 无效".to_string());
+        }
+        self.delete(&format!("/connections/{}", urlencode(id.trim())))
+            .map(|_| ())
+    }
+
     /// Query the controller's DNS resolver.
     pub fn query_dns(&self, name: &str, kind: &str) -> Result<String, String> {
         self.get(&format!(
@@ -194,6 +217,33 @@ impl ControllerClient {
     }
 }
 
+fn request_error(error: ureq::Error) -> String {
+    match error {
+        ureq::Error::Status(401 | 403, _) => "密钥无效".to_string(),
+        ureq::Error::Status(404, _) => "控制器接口不存在，请确认地址".to_string(),
+        ureq::Error::Status(status, _) => format!("控制器返回 HTTP {status}"),
+        ureq::Error::Transport(transport) => {
+            let text = transport.to_string();
+            if text.to_lowercase().contains("timed out") {
+                "控制器连接超时".to_string()
+            } else if text.contains("refused") || text.contains("10061") {
+                "无法连接控制器，请确认地址和端口".to_string()
+            } else {
+                format!("无法连接控制器：{text}")
+            }
+        }
+    }
+}
+
+fn normalize_endpoint(endpoint: &str) -> String {
+    let trimmed = endpoint.trim().trim_end_matches('/');
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        trimmed.to_string()
+    } else {
+        format!("http://{trimmed}")
+    }
+}
+
 fn urlencode(input: &str) -> String {
     let mut result = String::new();
     for byte in input.as_bytes() {
@@ -205,4 +255,72 @@ fn urlencode(input: &str) -> String {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_endpoint, ControllerClient, ControllerTransport};
+
+    #[test]
+    fn endpoint_without_scheme_gets_http_prefix() {
+        assert_eq!(
+            normalize_endpoint("127.0.0.1:9090"),
+            "http://127.0.0.1:9090"
+        );
+        assert_eq!(
+            normalize_endpoint(" 127.0.0.1:9090/ "),
+            "http://127.0.0.1:9090"
+        );
+    }
+
+    #[test]
+    fn endpoint_with_scheme_is_kept() {
+        assert_eq!(
+            normalize_endpoint("http://127.0.0.1:9090/"),
+            "http://127.0.0.1:9090"
+        );
+        assert_eq!(
+            normalize_endpoint("https://controller.example.com"),
+            "https://controller.example.com"
+        );
+    }
+
+    #[test]
+    fn endpoint_without_scheme_reaches_a_local_controller() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0u8; 1024];
+            let _ = stream.read(&mut buffer);
+            let body = "{\"connections\":[]}";
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+
+        let client = ControllerClient::from_parts(
+            &format!("127.0.0.1:{port}"),
+            "",
+            ControllerTransport::Tcp,
+        );
+        let body = client.get("/connections").unwrap();
+        assert!(body.contains("connections"));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn tcp_base_url_is_a_valid_absolute_url() {
+        let client =
+            ControllerClient::from_parts("127.0.0.1:9097", "secret", ControllerTransport::Tcp);
+        assert_eq!(client.base_url(), "http://127.0.0.1:9097");
+        assert!(format!("{}/connections", client.base_url()).starts_with("http://"));
+    }
 }

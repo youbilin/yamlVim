@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 
-import { controllerDelay, controllerGet, switchProxy } from '../api';
+import {
+  controllerCloseConnection,
+  controllerDelay,
+  controllerGet,
+  errorMessage,
+  switchProxy,
+} from '../api';
 import { useApp } from './app';
 
 export interface LiveConnection {
@@ -9,6 +15,8 @@ export interface LiveConnection {
   upload: number;
   download: number;
   chains: string[];
+  rule?: string;
+  rulePayload?: string;
   start: string;
 }
 
@@ -28,9 +36,11 @@ interface LiveStore {
   connections: LiveConnection[];
   groups: ProxyGroup[];
   attached: boolean;
+  error: string | null;
   delays: Record<string, number | null>;
   poll: () => Promise<void>;
   switchGroup: (group: string, name: string) => Promise<void>;
+  closeConnection: (id: string) => Promise<void>;
   testDelay: (group: string) => Promise<void>;
 }
 
@@ -38,11 +48,12 @@ export const useLive = create<LiveStore>((set, get) => ({
   connections: [],
   groups: [],
   attached: false,
+  error: null,
   delays: {},
   async poll() {
     const endpoint = useApp.getState().settings.controllerEndpoint.trim();
     if (!endpoint) {
-      set({ attached: false, connections: [], groups: [] });
+      set({ attached: false, connections: [], groups: [], error: null });
       return;
     }
     try {
@@ -63,13 +74,18 @@ export const useLive = create<LiveStore>((set, get) => ({
         connections: connectionsData.connections ?? [],
         groups,
         attached: true,
+        error: null,
       });
-    } catch {
-      set({ attached: false });
+    } catch (reason) {
+      set({ attached: false, error: errorMessage(reason) });
     }
   },
   async switchGroup(group, name) {
     await switchProxy(group, name);
+    await get().poll();
+  },
+  async closeConnection(id) {
+    await controllerCloseConnection(id);
     await get().poll();
   },
   async testDelay(group) {

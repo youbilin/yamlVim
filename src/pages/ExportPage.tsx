@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Download, RefreshCw, Save, ShieldCheck } from 'lucide-react';
+import { Download, RefreshCw, Save, ShieldCheck, UploadCloud } from 'lucide-react';
 
 import {
   errorMessage,
   exportConfig,
+  exportToClashVerge,
   getConfigStatus,
   isTauriRuntime,
   latestExport,
   saveWorkspaceYaml,
   validateConfig,
 } from '../api';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { toast } from '../store/toast';
 import { useWorkspaceData } from '../store/workspace';
 import type { ConfigStatus } from '../types';
@@ -70,6 +72,8 @@ export function ExportPage() {
   const [loadedYaml, setLoadedYaml] = useState('');
   const [busy, setBusy] = useState(false);
   const [diff, setDiff] = useState<DiffLine[] | null>(null);
+  const [vergeOpen, setVergeOpen] = useState(false);
+  const [vergeBusy, setVergeBusy] = useState(false);
   const version = useWorkspaceData((state) => state.version);
   const browser = !isTauriRuntime();
   const dirty = draftYaml !== loadedYaml;
@@ -117,7 +121,8 @@ export function ExportPage() {
       if (result.ok) {
         toast.success('mihomo -t 通过');
       } else {
-        toast.error('mihomo -t 校验未通过');
+        const firstLine = result.output.split('\n').find((line) => line.trim()) ?? '';
+        toast.error(firstLine ? `mihomo -t 校验未通过：${firstLine}` : 'mihomo -t 校验未通过');
       }
     } catch (reason) {
       toast.error(errorMessage(reason));
@@ -137,6 +142,34 @@ export function ExportPage() {
       setDiff(diffLines(previous.split('\n'), draftYaml.split('\n')));
     } catch (reason) {
       toast.error(errorMessage(reason));
+    }
+  };
+
+  const handleVergeExport = async () => {
+    setVergeBusy(true);
+    try {
+      if (dirty) {
+        const next = await saveWorkspaceYaml(draftYaml);
+        setStatus(next);
+        setLoadedYaml(next.configYaml ?? '');
+        setDraftYaml(next.configYaml ?? '');
+        void useWorkspaceData.getState().load();
+      }
+      const stamp = new Date()
+        .toLocaleString('zh-CN', { hour12: false })
+        .replace(/\//g, '-');
+      const result = await exportToClashVerge(`YamlVim ${stamp}`);
+      toast.success(`已写入 Clash Verge 订阅「${result.profile}」`);
+      toast.info(
+        result.providersCopied
+          ? `已设为当前订阅，并复制 ${result.providersCopied} 个规则集文件；在 Verge 中刷新后生效`
+          : '已设为当前订阅；在 Verge 中刷新后生效',
+      );
+      setVergeOpen(false);
+    } catch (reason) {
+      toast.error(errorMessage(reason));
+    } finally {
+      setVergeBusy(false);
     }
   };
 
@@ -235,6 +268,15 @@ export function ExportPage() {
               <Download size={15} />
               导出新 YAML
             </button>
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={() => setVergeOpen(true)}
+              disabled={busy || vergeBusy || browser}
+            >
+              <UploadCloud size={15} />
+              导入到 Clash Verge
+            </button>
           </div>
         </div>
 
@@ -265,6 +307,21 @@ export function ExportPage() {
           </div>
         ) : null}
       </div>
+
+      {vergeOpen ? (
+        <ConfirmDialog
+          title="导入到 Clash Verge"
+          message={[
+            '将把当前工作区配置写入 Clash Verge：新增一个本地订阅文件并设为当前订阅。',
+            '不会改动 Verge 里的其他订阅；Verge 中可能需要刷新或重启后生效。',
+          ].join('\n\n')}
+          confirmLabel={vergeBusy ? '写入中…' : '写入 Verge'}
+          onConfirm={handleVergeExport}
+          onClose={() => {
+            if (!vergeBusy) setVergeOpen(false);
+          }}
+        />
+      ) : null}
     </section>
   );
 }

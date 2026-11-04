@@ -1,154 +1,109 @@
+<div align="center">
+
 # YamlVim
 
-Standalone mihomo routing and DNS workbench. See [PLAN.md](PLAN.md) for the design.
+**本地优先的 mihomo 路由与 DNS 工作台**
 
-## Current status (2026-11-04)
+[![CI](https://github.com/youbilin/yamlVim/actions/workflows/ci.yml/badge.svg)](https://github.com/youbilin/yamlVim/actions/workflows/ci.yml)
+![Platform](https://img.shields.io/badge/platform-Windows-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-0.1.0-orange)
 
-- **M0 shell**: Tauri 2 + React 19 + Vite application shell with a monochrome,
-  collapsible sidebar and a built-in NSIS installer target.
-- **Workspace ownership**: importing YAML or node links populates nodes, exits,
-  rules and chains. Export regenerates a brand-new YAML from the current workspace
-  only. There is no hidden base config and no history layer.
-- **Visual editors**: Nodes, Exits, Rules and Chains support add/edit/delete;
-  nodes can be disabled, renamed or removed with group references normalized.
-  Rule and exit creation use right-side sheets with node selection, presets and
-  batch input.
-- **Rule catalog**: the Rules sheet bundles the MetaCubeX/meta-rules-dat catalog
-  with Chinese names, descriptions and categories, searches locally (for example
-  `抖音`), and adds http `.mrs` providers plus matching `RULE-SET` rules.
-- **Export page**: the full YAML is editable, `mihomo -t` can validate it, a line
-  diff compares it with the latest export, and a new timestamped YAML is written.
-- **Files page**: lists every exported YAML, previews it, deletes it, or loads it
-  as a fresh workspace for a new editing session.
-- **Live page**: read-only attach to a running mihomo controller; lists connections,
-  switches Selector groups, runs delay tests and supports DNS query/cache flush.
-- **Topbar core drawer**: the Cpu button opens a right-side drawer with mihomo probe
-  and controller settings; the Live page remains a full page in the sidebar.
-- **Safe mode**: no core start/stop, no profile reload, no writes to another client.
-  Selector switches and cache flushes are explicit runtime actions.
-- **DNS**: collapsible raw DNS/hosts YAML editor plus a visual override form;
-  applying validates with `mihomo -t` before writing the workspace.
-- **Providers**: local `rule-providers`/`proxy-providers` files and GeoData are
-  copied into `data/core`, with provider paths rewritten to the app folder.
-- **Rust core**: 41 tests + 1 Tauri integration test. Frontend build, fmt and clippy
-  pass. `mihomo v1.19.32` accepts the generated YAML with `-t`.
-- **Packaging**: NSIS installer builds successfully
-  (`src-tauri/target/release/bundle/nsis/YamlVim_0.1.0_x64-setup.exe`).
-- **Not yet wired**: WebSocket streaming (live data currently polls every 5s),
-  portable provider-path rewriting and code signing.
+把 mihomo 配置当作可以安全编辑的工作区：可视化维护节点、策略组、规则与 DNS，
+一键导出标准 YAML，或直接写入 Clash Verge；实时页面挂接运行中的内核，
+可切换出口、测速、查看连接流。
 
-## Data directory
+</div>
 
-YamlVim is portable and app-local. It does not use `%APPDATA%`.
+---
 
-```text
-data/                         # debug: project/data; release: next to the exe
-├── settings.json
-├── workspace.json            # source of truth: settings, nodes, exits, rules, DNS
-├── config.yaml               # generated from the workspace
-├── exports/                  # timestamped YAML files; list/preview/re-edit in Files
-└── core/                     # GeoData + copied providers
-```
+## 特性
 
-`YAMLVIM_DATA_DIR` overrides the location. `data/` is gitignored because it can
-contain node credentials and controller secrets.
+### 工作区驱动
 
-## One-click import
+- **Workspace-only 架构**：所有编辑落在 workspace.json，没有隐藏的基础配置，也没有历史快照层；导出永远基于当前工作区重新生成完整 YAML。
+- **可视化编辑**：节点、策略组（出口）、规则、链式节点全部支持增删改；删除/重命名节点时自动清理与改写策略组引用。
+- **混合批量导入**：导入框逐行处理——配置路径、订阅 URL、节点分享链接、YAML、Base64，互不阻断，失败行单独提示。
 
-Use the topbar **导入** action once. It auto-detects:
+### 规则与策略组
 
-- a local mihomo YAML file path
-- a subscription URL
-- node share links (`ss`, `ssr`, `vmess`, `vless`, `trojan`, `hysteria2`,
-  `tuic`, `socks5`)
-- pasted mihomo YAML
+- **内置规则目录**：打包 MetaCubeX meta-rules-dat 全量目录，中文名称/描述/分类，本地离线检索（如搜「抖音」），一键导入为 http .mrs rule-provider + RULE-SET 规则。
+- **策略组模板**：内置 14 组标准模板（节点选择 / 自动选择 / 广告拦截 / AI / 油管 / 谷歌 / 微软 / 苹果 / 电报 / 代码托管 / 私有 / 国内 / 非中国 / 漏网之鱼），一键创建全部策略组、22 个规则集与 MATCH 兜底规则；IP 类规则自动带 no-resolve。
+- **推荐组合**：新增单个策略组时按服务维度推荐规则集组合，自动包含全部节点。
 
-A full config replaces the workspace and populates every page. A list of node links
-adds nodes to the current workspace. The only import entry is the topbar button.
+### 实时连接（Safe Mode）
 
-## Known limitations
+- 挂接运行中的 mihomo 外部控制器，轮询展示连接流：域名、命中规则、链路、速率。
+- **点击连接即可改出口**：定位链路上的 Selector 组，在「策略组 / 节点」中直接切换，并断开该连接使其按新出口重连。
+- 策略组测速、DNS 查询与缓存清理均为显式动作；不会启动/停止/重载内核。
 
-- Live data is polled every 5 seconds; WebSocket push is not implemented yet.
-- A read-only attached kernel can only delay-test proxies already present in its
-  config. Brand-new workspace nodes need a direct probe or a temporary test core.
-- YamlVim does not start or stop mihomo in safe mode, so TUN/ports are not changed
-  by the app.
-- Import copies provider and GeoData snapshots; re-import to refresh them.
-- Import normalizes YAML and can drop comments; the source file is never modified.
-- Export strips controller/secret but keeps app-local provider paths; portable export
-  path rewriting is a follow-up.
+### DNS 覆写
 
-## Repository layout
+- 可视化表单 + 可收起的原始 YAML 编辑，支持 nameserver-policy、固定 IP、拦截、绕过 fake-IP 等策略。
+- **持久默认配置**：内置实战调优的默认 DNS（fake-ip、多上游、fallback-filter、本地域名策略），没有内核时也能直接应用；配置内核后自动执行 mihomo -t 校验。
 
-```text
-src/                    React UI (core, live, nodes, exits, chains, rules, DNS, export, files)
-src-tauri/              Tauri 2 shell, IPC commands, tray and single instance
-crates/yamlvim-core/    workspace model, DNS compiler, link parser, config generation
-crates/yamlvim-mihomo/  probe, config validation, controller client, process runner
-fixtures/               base config and DNS golden inputs
-PLAN.md                 product and architecture plan
-```
+### 导出与 Clash Verge 集成
 
-## Web shell
+- **导出页**：完整 YAML 可编辑，mihomo -t 校验、与上次导出 diff、时间戳落盘。
+- **写入 Clash Verge**：把当前配置作为本地订阅写入 Verge 的 profiles.yaml 并设为当前，本地规则集文件一并复制，Verge 刷新即生效。
+- **读取 Clash Verge**：反向导入 Verge 当前启用的订阅，并可自动带出 Verge 的控制器地址与密钥。
+
+### 桌面体验
+
+- Tauri 2 + React 19 + Vite，白黑灰单色视觉，可折叠侧边栏，NSIS 安装包。
+- 文件页管理每次导出的 YAML：预览、删除、或作为全新工作区载入继续编辑。
+
+## 快速开始
 
 ```bash
+# 从源码构建（Node >= 22, Rust stable + MSVC）
 npm install
-npm run dev          # http://127.0.0.1:5273
-npm run build        # typecheck + production assets
+npm run desktop:build   # 产出 NSIS 安装包
 ```
 
-The browser build uses mock probe/workspace responses so the UI can be developed
-without a Tauri window. It never starts a core or writes a config.
+安装后：
 
-## Desktop shell
+1. **内核页**（可选）：设置 mihomo 可执行文件路径，用于 mihomo -t 校验。没有内核也能完成全部编辑与 DNS 应用。
+2. **导入**：粘贴订阅 URL / 节点链接 / 配置路径 / YAML，或直接从 Clash Verge 读取。
+3. **策略组**：出口页点「应用模板」一键生成完整骨架，或按推荐组合逐个创建。
+4. **导出**：校验后导出 YAML，或直接「导入到 Clash Verge」。
+5. **实时连接**：填入控制器地址（如 127.0.0.1:9090）连接运行中的内核。
+
+## 数据目录
+
+```
+<data>/
+├── workspace.json      # 唯一事实来源
+├── config.yaml         # 由 workspace 生成的完整配置
+├── settings.json       # 内核路径与控制器设置
+├── dns-default.yaml    # 默认 DNS（未保存时使用内置默认）
+├── core/               # 校验工作目录 + 规则集缓存
+└── exports/            # 每次导出的时间戳 YAML
+```
+
+## 架构
+
+| 层 | 说明 |
+| --- | --- |
+| src/ | React 19 + zustand + Vite 前端 |
+| crates/yamlvim-core | 工作区模型、YAML 生成、DNS 编译器、分享链接解析 |
+| crates/yamlvim-mihomo | 内核探测、mihomo -t 校验、外部控制器客户端 |
+| src-tauri/ | Tauri 2 壳、托盘、单实例、全部 IPC 命令 |
+
+## 开发
 
 ```bash
-npm run desktop:dev
-npm run desktop:build
+npm run dev            # Web 预览（浏览器 mock）
+cargo test --workspace # Rust 测试 + clippy
+npm run desktop:dev    # Tauri 开发模式
 ```
 
-Windows prerequisites: Rust stable, MSVC Build Tools with the C++ workload, Windows
-SDK 10 and WebView2 Runtime. The desktop shell was compiled and tested with VS 2026
-Build Tools via `vcvarsall.bat x64`. If `tauri info` does not detect VS 18, run the
-desktop commands from a Developer Command Prompt.
+## 已知限制
 
-Verified end-to-end: probe a standard mihomo → import YAML → nodes/exits/rules
-populate → edit nodes/exits/rules/chains → `mihomo -t` → export a new YAML → file
-list preview/re-edit. Closing the window hides it to the tray; single instance is
-enabled.
+- 实时数据为 1s 轮询（WebSocket 推送在路线图中）
+- 未做代码签名，Windows SmartScreen 可能提示
+- provider 路径按各客户端数据目录生成，跨客户端搬运请重新导出
 
-## Rust checks
+## License
 
-```bash
-cargo test --workspace
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-```
-
-Tauri library tests and build (from a Developer Command Prompt or after
-`vcvarsall.bat x64`):
-
-```bash
-cargo test --manifest-path src-tauri/Cargo.toml --lib
-cargo build --manifest-path src-tauri/Cargo.toml
-```
-
-If MSVC Build Tools are unavailable, run the Rust tests with the installed GNU
-toolchain:
-
-```bash
-cargo +stable-x86_64-pc-windows-gnu test --workspace
-```
-
-## CLI helpers
-
-```bash
-# DNS fragment
-cargo run -p yamlvim-core --bin yamlvim-core -- dns fixtures/dns/basic.yaml
-
-# base + DNS merge
-cargo run -p yamlvim-core --bin yamlvim-core -- config fixtures/config-basic.yaml fixtures/dns/merge.yaml
-
-# core compatibility probe
-cargo run -p yamlvim-mihomo --bin yamlvim-probe -- /path/to/mihomo
-```
+[MIT](LICENSE)

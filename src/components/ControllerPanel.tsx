@@ -11,6 +11,7 @@ export function ControllerPanel() {
   const setControllerEndpoint = useApp((state) => state.setControllerEndpoint);
   const setControllerSecret = useApp((state) => state.setControllerSecret);
   const attached = useLive((state) => state.attached);
+  const error = useLive((state) => state.error);
   const connections = useLive((state) => state.connections);
   const [busy, setBusy] = useState(false);
 
@@ -26,7 +27,16 @@ export function ControllerPanel() {
         settings.controllerSecret,
       );
       await useLive.getState().poll();
-      toast.success('控制器设置已保存');
+      const live = useLive.getState();
+      if (live.attached) {
+        toast.success(
+          live.connections.length
+            ? `控制器已连接 · ${live.connections.length} 条连接`
+            : '控制器已连接 · 当前没有活动连接',
+        );
+      } else {
+        toast.error(live.error ?? '控制器未连接，请检查地址和密钥');
+      }
     } catch (reason) {
       toast.error(errorMessage(reason));
     } finally {
@@ -39,8 +49,11 @@ export function ControllerPanel() {
       <div className="card-head">
         <div className="card-title-row">
           <h2 className="card-title">控制器</h2>
-          <span className={`chip ${attached ? 'chip-managed' : 'chip-muted'}`}>
-            {attached ? `${connections.length} 条连接` : '未连接'}
+          <span
+            className={`chip ${attached ? 'chip-managed' : 'chip-muted'}`}
+            title={attached ? undefined : (error ?? undefined)}
+          >
+            {attached ? `${connections.length} 条连接` : error ? '连接失败' : '未连接'}
           </span>
         </div>
       </div>
@@ -54,6 +67,7 @@ export function ControllerPanel() {
             placeholder="127.0.0.1:9090"
             spellCheck={false}
           />
+          <span className="hint">填 mihomo 的 external-controller 端口，不是代理端口。</span>
         </label>
         <label className="field">
           <span>密钥</span>

@@ -19,28 +19,140 @@ import { toDnsInput } from '../lib/dns';
 import { useWorkspaceData } from '../store/workspace';
 import type {
   ActionType,
+  ConfigApplyResult,
   DnsDraft,
   DnsDraftSettings,
   DnsRuleDraft,
   MatchType,
 } from '../types';
 
+const FAKE_IP_FILTER = [
+  '*.lan',
+  'stun.*.*.*',
+  'stun.*.*',
+  'time.windows.com',
+  'time.nist.gov',
+  'time.apple.com',
+  'time.asia.apple.com',
+  '*.ntp.org.cn',
+  '*.openwrt.pool.ntp.org',
+  'time1.cloud.tencent.com',
+  'time.ustc.edu.cn',
+  'pool.ntp.org',
+  'ntp.ubuntu.com',
+  'ntp.aliyun.com',
+  'ntp1.aliyun.com',
+  'ntp2.aliyun.com',
+  'ntp3.aliyun.com',
+  'ntp4.aliyun.com',
+  'ntp5.aliyun.com',
+  'ntp6.aliyun.com',
+  'ntp7.aliyun.com',
+  'time1.aliyun.com',
+  'time2.aliyun.com',
+  'time3.aliyun.com',
+  'time4.aliyun.com',
+  'time5.aliyun.com',
+  'time6.aliyun.com',
+  'time7.aliyun.com',
+  '*.time.edu.cn',
+  'time1.apple.com',
+  'time2.apple.com',
+  'time3.apple.com',
+  'time4.apple.com',
+  'time5.apple.com',
+  'time6.apple.com',
+  'time7.apple.com',
+  'time1.google.com',
+  'time2.google.com',
+  'time3.google.com',
+  'time4.google.com',
+  'music.163.com',
+  '*.music.163.com',
+  '*.126.net',
+  'musicapi.taihe.com',
+  'music.taihe.com',
+  'songsearch.kugou.com',
+  'trackercdn.kugou.com',
+  '*.kuwo.cn',
+  'api-jooxtt.sanook.com',
+  'api.joox.com',
+  'joox.com',
+  'y.qq.com',
+  '*.y.qq.com',
+  'streamoc.music.tc.qq.com',
+  'mobileoc.music.tc.qq.com',
+  'isure.stream.qqmusic.qq.com',
+  'dl.stream.qqmusic.qq.com',
+  'aqqmusic.tc.qq.com',
+  'amobile.music.tc.qq.com',
+  '*.xiami.com',
+  '*.music.migu.cn',
+  'music.migu.cn',
+  '*.msftconnecttest.com',
+  '*.msftncsi.com',
+  'localhost.ptlogin2.qq.com',
+  '*.*.*.srv.nintendo.net',
+  '*.*.stun.playstation.net',
+  'xbox.*.*.microsoft.com',
+  '*.ipv6.microsoft.com',
+  '*.*.xboxlive.com',
+  'speedtest.cros.wr.pvp.net',
+].join('\n');
+
+const NAMESERVER = [
+  '180.76.76.76',
+  '119.29.29.29',
+  '180.184.1.1',
+  '223.5.5.5',
+  '8.8.8.8',
+  'https://223.6.6.6/dns-query#h3=true',
+  'https://dns.alidns.com/dns-query',
+  'https://cloudflare-dns.com/dns-query',
+  'https://doh.pub/dns-query',
+].join('\n');
+
+const DEFAULT_NAMESERVER = ['180.76.76.76', '182.254.118.118', '8.8.8.8', '180.184.2.2'].join(
+  '\n',
+);
+
+const FALLBACK = [
+  'https://000000.dns.nextdns.io/dns-query#h3=true',
+  'https://dns.alidns.com/dns-query',
+  'https://doh.pub/dns-query',
+  'https://public.dns.iij.jp/dns-query',
+  'https://101.101.101.101/dns-query',
+  'https://208.67.220.220/dns-query',
+  'tls://8.8.4.4',
+  'tls://1.0.0.1:853',
+  'https://cloudflare-dns.com/dns-query',
+  'https://dns.google/dns-query',
+].join('\n');
+
 const DEFAULT_DRAFT: DnsDraft = {
   enabled: true,
   settings: {
     enable: true,
-    listen: '127.0.0.1:1053',
+    listen: '127.0.0.1:5335',
     enhancedMode: 'fake-ip',
     fakeIpRange: '198.18.0.1/16',
-    fakeIpFilter: '*.lan\n+.local',
-    nameserver: 'https://doh.pub/dns-query\ntls://dns.alidns.com',
-    defaultNameserver: '223.5.5.5\n119.29.29.29',
-    proxyServerNameserver: 'https://doh.pub/dns-query',
-    fallback: 'tls://8.8.4.4',
+    fakeIpFilter: FAKE_IP_FILTER,
+    nameserver: NAMESERVER,
+    defaultNameserver: DEFAULT_NAMESERVER,
+    proxyServerNameserver: '',
+    fallback: FALLBACK,
     useHosts: true,
-    useSystemHosts: true,
+    useSystemHosts: false,
   },
   rules: [
+    {
+      id: 'rule-wbu',
+      enabled: true,
+      matchType: 'suffix',
+      matchValue: 'wbu.edu.cn',
+      actionType: 'nameserver',
+      actionValue: '218.199.208.8',
+    },
     {
       id: 'rule-openai',
       enabled: true,
@@ -95,6 +207,18 @@ function needsValue(action: ActionType): boolean {
   return action === 'nameserver' || action === 'fixed-ip';
 }
 
+function applyFailedMessage(result: ConfigApplyResult): string {
+  const firstLine =
+    result.validation.output.split('\n').find((line) => line.trim()) ?? '';
+  return firstLine ? `mihomo -t 校验未通过：${firstLine}` : 'mihomo -t 校验未通过';
+}
+
+function appliedLabel(result: ConfigApplyResult, prefix: string): string {
+  return result.validation.output.includes('跳过')
+    ? `${prefix}（未找到内核，跳过 mihomo -t 校验）`
+    : `${prefix}`;
+}
+
 export function DnsPage() {
   const [draft, setDraft] = useState<DnsDraft>(DEFAULT_DRAFT);
   const [applying, setApplying] = useState(false);
@@ -147,11 +271,11 @@ export function DnsPage() {
       }
       const result = await applyDnsYaml(yaml);
       if (result.ok) {
-        toast.success('默认 DNS 已应用');
+        toast.success(appliedLabel(result, '默认 DNS 已应用'));
         await useWorkspaceData.getState().load();
         await loadDnsYaml();
       } else {
-        toast.error('mihomo -t 校验未通过');
+        toast.error(applyFailedMessage(result));
       }
     } catch (reason) {
       toast.error(errorMessage(reason));
@@ -165,11 +289,11 @@ export function DnsPage() {
     try {
       const result = await applyDnsYaml(dnsYaml);
       if (result.ok) {
-        toast.success('DNS YAML 已应用到 workspace');
+        toast.success(appliedLabel(result, 'DNS YAML 已应用'));
         await useWorkspaceData.getState().load();
         await loadDnsYaml();
       } else {
-        toast.error('mihomo -t 校验未通过');
+        toast.error(applyFailedMessage(result));
       }
     } catch (reason) {
       toast.error(errorMessage(reason));
@@ -210,11 +334,11 @@ export function DnsPage() {
     try {
       const result = await applyDnsConfig(toDnsInput(draft));
       if (result.ok) {
-        toast.success('DNS 覆写已应用');
+        toast.success(appliedLabel(result, 'DNS 覆写已应用'));
         await useWorkspaceData.getState().load();
         await loadDnsYaml();
       } else {
-        toast.error('mihomo -t 校验未通过，配置未写入');
+        toast.error(applyFailedMessage(result));
       }
     } catch (reason) {
       toast.error(errorMessage(reason));

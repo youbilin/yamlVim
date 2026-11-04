@@ -117,11 +117,59 @@ export async function getConfigStatus(): Promise<ConfigStatus> {
   return invoke<ConfigStatus>('config_status');
 }
 
-export async function importSource(input: string): Promise<ConfigStatus> {
+export interface ImportBatchResult {
+  status: ConfigStatus;
+  addedNodes: number;
+  addedExits: number;
+  addedRules: number;
+  errors: string[];
+}
+
+export async function importSource(input: string): Promise<ImportBatchResult> {
   if (!isTauriRuntime()) {
     throw new Error('Browser mode cannot read local files or network. Use the Tauri app.');
   }
-  return invoke<ConfigStatus>('import_source', { input });
+  return invoke<ImportBatchResult>('import_source', { input });
+}
+
+export interface VergeProfile {
+  uid: string;
+  name: string;
+  file: string;
+  current: boolean;
+}
+
+export interface VergeProfilesView {
+  dir: string;
+  profiles: VergeProfile[];
+}
+
+export interface VergeImportResult {
+  status: ConfigStatus;
+  profile: string;
+  controllerSet: string | null;
+}
+
+export async function clashVergeProfiles(): Promise<VergeProfilesView> {
+  if (!isTauriRuntime()) throw new Error('Browser mode cannot read Clash Verge.');
+  return invoke<VergeProfilesView>('clash_verge_profiles');
+}
+
+export async function importClashVerge(uid?: string): Promise<VergeImportResult> {
+  if (!isTauriRuntime()) throw new Error('Browser mode cannot read Clash Verge.');
+  return invoke<VergeImportResult>('import_clash_verge', { uid: uid ?? null });
+}
+
+export interface VergeExportResult {
+  profile: string;
+  file: string;
+  vergeDir: string;
+  providersCopied: number;
+}
+
+export async function exportToClashVerge(name?: string): Promise<VergeExportResult> {
+  if (!isTauriRuntime()) throw new Error('Browser mode cannot write Clash Verge.');
+  return invoke<VergeExportResult>('export_to_clash_verge', { name: name ?? null });
 }
 
 export async function importNodeLinks(text: string): Promise<ConfigStatus> {
@@ -228,6 +276,11 @@ export async function controllerDnsQuery(name: string, kind: string): Promise<st
 export async function controllerFlushDns(): Promise<string> {
   if (!isTauriRuntime()) throw new Error('Browser mode: controller not available.');
   return invoke<string>('controller_flush_dns');
+}
+
+export async function controllerCloseConnection(id: string): Promise<string> {
+  if (!isTauriRuntime()) throw new Error('Browser mode: controller not available.');
+  return invoke<string>('controller_close_connection', { id });
 }
 
 export async function saveController(endpoint: string, secret: string): Promise<void> {
@@ -337,6 +390,36 @@ export async function saveExitYaml(
 
 export async function deleteExit(name: string): Promise<ConfigStatus> {
   return invoke<ConfigStatus>('delete_exit', { name });
+}
+
+export interface GroupTemplateProvider {
+  name: string;
+  behavior: string;
+  url: string;
+  format: string;
+}
+
+export interface GroupTemplateRule {
+  provider: string;
+  target: string;
+  noResolve?: boolean;
+}
+
+export async function applyGroupTemplate(
+  groups: object[],
+  providers: GroupTemplateProvider[],
+  rules: GroupTemplateRule[],
+  matchTarget: string,
+): Promise<ConfigStatus> {
+  if (!isTauriRuntime()) {
+    throw new Error('Browser mode cannot apply the group template.');
+  }
+  return invoke<ConfigStatus>('apply_group_template', {
+    groups,
+    providers,
+    rules,
+    matchTarget,
+  });
 }
 
 export async function createChainNode(
