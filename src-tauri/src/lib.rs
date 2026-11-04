@@ -12,6 +12,7 @@ use base64::engine::{general_purpose::GeneralPurpose, DecodePaddingMode, General
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Mapping;
+mod share;
 
 use yamlvim_core::{
     compile_dns, parse_share_link, provider_paths, set_provider_path, share_node_to_proxy,
@@ -1116,6 +1117,71 @@ fn export_to_clash_verge(name: Option<String>) -> Result<VergeExportResult, Stri
         verge_dir: dir.display().to_string(),
         providers_copied,
     })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShareInfoView {
+    url: String,
+    scheme_url: String,
+    expires_at: u64,
+}
+
+fn share_server() -> std::sync::MutexGuard<'static, share::ShareServer> {
+    static SERVER: std::sync::OnceLock<std::sync::Mutex<share::ShareServer>> =
+        std::sync::OnceLock::new();
+    SERVER
+        .get_or_init(|| std::sync::Mutex::new(share::ShareServer::new()))
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+}
+
+#[tauri::command]
+fn share_to_clash_verge() -> Result<ShareInfoView, String> {
+    let workspace = load_workspace()?;
+    let yaml = workspace.to_yaml(false).map_err(|error| error.to_string())?;
+    let info = share_server().publish(yaml)?;
+    Ok(ShareInfoView {
+        url: info.url,
+        scheme_url: info.scheme_url,
+        expires_at: info.expires_at,
+    })
+}
+
+fn open_in_shell(url: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "", url])
+            .creation_flags(0x0800_0000)
+            .spawn()
+            .is_ok()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(url).spawn().is_ok()
+    }
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open").arg(url).spawn().is_ok()
+    }
+}
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<bool, String> {
+    let url = url.trim();
+    let allowed = url.starts_with("http://")
+        || url.starts_with("https://")
+        || url.starts_with("clash://");
+    if !allowed {
+        return Err("只允许打开 http/https/clash 地址".into());
+    }
+    if url.contains('\r') || url.contains('\n') {
+        return Err("地址格式无效".into());
+    }
+    let opened = open_in_shell(url);
+    Ok(opened)
 }
 
 #[derive(Debug, Serialize)]
@@ -2275,6 +2341,8 @@ pub fn run() {
             clash_verge_profiles,
             import_clash_verge,
             export_to_clash_verge,
+            share_to_clash_verge,
+            open_external_url,
             controller_get,
             controller_delay,
             controller_dns_query,

@@ -4,14 +4,17 @@ import { Download, RefreshCw, Save, ShieldCheck, UploadCloud } from 'lucide-reac
 import {
   errorMessage,
   exportConfig,
-  exportToClashVerge,
   getConfigStatus,
   isTauriRuntime,
   latestExport,
+  openExternalUrl,
   saveWorkspaceYaml,
+  shareToClashVerge,
   validateConfig,
 } from '../api';
+import type { ShareInfo } from '../api';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { Dialog } from '../components/Dialog';
 import { toast } from '../store/toast';
 import { useWorkspaceData } from '../store/workspace';
 import type { ConfigStatus } from '../types';
@@ -74,6 +77,7 @@ export function ExportPage() {
   const [diff, setDiff] = useState<DiffLine[] | null>(null);
   const [vergeOpen, setVergeOpen] = useState(false);
   const [vergeBusy, setVergeBusy] = useState(false);
+  const [shareInfo, setShareInfo] = useState<ShareInfo | null>(null);
   const version = useWorkspaceData((state) => state.version);
   const browser = !isTauriRuntime();
   const dirty = draftYaml !== loadedYaml;
@@ -145,7 +149,7 @@ export function ExportPage() {
     }
   };
 
-  const handleVergeExport = async () => {
+  const handleVergeShare = async () => {
     setVergeBusy(true);
     try {
       if (dirty) {
@@ -155,17 +159,15 @@ export function ExportPage() {
         setDraftYaml(next.configYaml ?? '');
         void useWorkspaceData.getState().load();
       }
-      const stamp = new Date()
-        .toLocaleString('zh-CN', { hour12: false })
-        .replace(/\//g, '-');
-      const result = await exportToClashVerge(`YamlVim ${stamp}`);
-      toast.success(`已写入 Clash Verge 订阅「${result.profile}」`);
-      toast.info(
-        result.providersCopied
-          ? `已设为当前订阅，并复制 ${result.providersCopied} 个规则集文件；在 Verge 中刷新后生效`
-          : '已设为当前订阅；在 Verge 中刷新后生效',
-      );
+      const info = await shareToClashVerge();
+      const opened = await openExternalUrl(info.schemeUrl);
+      setShareInfo(info);
       setVergeOpen(false);
+      if (opened) {
+        toast.success('已调起 Clash Verge，请在弹窗中确认导入');
+      } else {
+        toast.error('调起 Clash Verge 失败，请复制下方链接手动新建订阅');
+      }
     } catch (reason) {
       toast.error(errorMessage(reason));
     } finally {
@@ -310,17 +312,51 @@ export function ExportPage() {
 
       {vergeOpen ? (
         <ConfirmDialog
-          title="导入到 Clash Verge"
+          title="一键导入到 Clash Verge"
           message={[
-            '将把当前工作区配置写入 Clash Verge：新增一个本地订阅文件并设为当前订阅。',
-            '不会改动 Verge 里的其他订阅；Verge 中可能需要刷新或重启后生效。',
+            '将生成本地临时订阅链接（30 分钟有效），并自动调起 Clash Verge 的导入弹窗。',
+            '如未弹出，可复制链接到 Verge 手动「新建订阅」粘贴导入。',
           ].join('\n\n')}
-          confirmLabel={vergeBusy ? '写入中…' : '写入 Verge'}
-          onConfirm={handleVergeExport}
+          confirmLabel={vergeBusy ? '生成中…' : '生成链接并调起 Verge'}
+          onConfirm={handleVergeShare}
           onClose={() => {
             if (!vergeBusy) setVergeOpen(false);
           }}
         />
+      ) : null}
+
+      {shareInfo ? (
+        <Dialog title="Clash Verge 订阅链接" onClose={() => setShareInfo(null)}>
+          <div className="dialog-body">
+            <p className="lead">
+              链接 30 分钟内有效。Verge → 订阅 → 新建，粘贴此链接即可导入；下次更新配置请重新生成。
+            </p>
+            <div className="inline-actions">
+              <code
+                className="mono"
+                style={{ flex: 1, padding: '6px 8px', border: '1px solid var(--line)', borderRadius: 6, overflowWrap: 'anywhere' }}
+              >
+                {shareInfo.url}
+              </code>
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(shareInfo.url).then(() => toast.success('订阅链接已复制'));
+                }}
+              >
+                复制
+              </button>
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => void openExternalUrl(shareInfo.schemeUrl)}
+              >
+                再次调起 Verge
+              </button>
+            </div>
+          </div>
+        </Dialog>
       ) : null}
     </section>
   );

@@ -172,6 +172,25 @@ export async function exportToClashVerge(name?: string): Promise<VergeExportResu
   return invoke<VergeExportResult>('export_to_clash_verge', { name: name ?? null });
 }
 
+export interface ShareInfo {
+  url: string;
+  schemeUrl: string;
+  expiresAt: number;
+}
+
+export async function shareToClashVerge(): Promise<ShareInfo> {
+  if (!isTauriRuntime()) throw new Error('Browser mode cannot share config.');
+  return invoke<ShareInfo>('share_to_clash_verge');
+}
+
+export async function openExternalUrl(url: string): Promise<boolean> {
+  if (!isTauriRuntime()) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return true;
+  }
+  return invoke<boolean>('open_external_url', { url });
+}
+
 export async function importNodeLinks(text: string): Promise<ConfigStatus> {
   if (!isTauriRuntime()) {
     throw new Error('Browser mode cannot read local files. Use the Tauri app.');
